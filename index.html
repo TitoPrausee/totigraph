@@ -2107,21 +2107,21 @@ function applyZoom(e, damp){
 }
 
 /* ── Smart Zoom: zwei SEPARATE Zoom-Gesten < 450 ms auseinander ──
-   Eine Geste endet mit WHEEL_IDLE_MS Funkstille — erst dann zählt
-   sie als abgeschlossen. Kontinuierliches Scrollen armet nie. */
-let smartZoomArm = 0;        // Ende der letzten abgeschlossenen Zoom-Geste
-let gestureEndT = null;      // Timer für Geste-Ende (Arming nach Idle)
-function maybeSmartZoom(e, gestureStartedNew){
+   Geste = Wheel-Burst, endet nach WHEEL_IDLE_MS Funkstille.
+   Beim ersten Event einer NEUEN Geste: liegt das letzte Event der
+   vorherigen Zoom-Geste < 450 ms zurück → 100 %-Zoom am Cursor. */
+let prevGestureEndT = 0;     // letztes Event der vorherigen Zoom-Geste
+
+function maybeSmartZoom(e, wasIdle){
   const now = performance.now();
-  if(smartZoomArm && now - smartZoomArm < 450 && gestureStartedNew){
-    // Doppel-Geste: Zoom-Stufe an Cursor auf 100 %
+  if(wasIdle && prevGestureEndT && now - prevGestureEndT < 450){
     const r = board.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     const wx = (mx - S.x)/S.z, wy = (my - S.y)/S.z;
     S.z = 1;
     S.x = mx - wx; S.y = my - wy;
     animate(); apply(); hideHint();
-    smartZoomArm = 0;
+    prevGestureEndT = 0;   // Doppel-Trigger verhindern
     return true;
   }
   return false;
@@ -2140,13 +2140,10 @@ board.addEventListener("wheel", (e)=>{
   } else {
     applyPan(e, damp);
   }
-  // Geste-Ende-Boundary: nach Funkstille armen (für Smart-Zoom-Doppel)
-  clearTimeout(gestureEndT);
-  if(mode === "zoom"){
-    gestureEndT = setTimeout(()=>{ smartZoomArm = performance.now(); }, WHEEL_IDLE_MS + 30);
-  } else {
-    smartZoomArm = 0;   // Pan unterbricht die Doppel-Geste-Sequenz
-  }
+  // Geste-Ende: letztes Event merken (Smart-Zoom-Vergleichsbasis);
+  // Pan unterbricht die Doppel-Geste-Sequenz
+  if(mode === "zoom") prevGestureEndT = now;
+  else prevGestureEndT = 0;
 }, {passive:false});
 
 /* ── Rechtsklick-Menü (Board-Konvention) ─────────────────────── */
