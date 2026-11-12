@@ -2052,7 +2052,6 @@ buildPalette();
 let wheelMode = null;        // 'pan' | 'zoom' | null (bis Pause)
 let wheelPauseT = null;      // Zeitstempel letzter Wheel-Event
 let wheelZoomAcc = 0;        // Akkumulator für Ctrl-Signale
-let smartZoomArm = 0;        // Zeitstempel letzter Zoom-Geste (Smart Zoom)
 const WHEEL_IDLE_MS = 120;   // Geste endet nach 120 ms Funkstille
 
 function classifyWheel(e){
@@ -2107,10 +2106,14 @@ function applyZoom(e, damp){
   return f;
 }
 
-/* ── Smart Zoom: zwei Zoom-Gesten < 450 ms auseinander → 100 % ── */
-function maybeSmartZoom(e){
+/* ── Smart Zoom: zwei SEPARATE Zoom-Gesten < 450 ms auseinander ──
+   Eine Geste endet mit WHEEL_IDLE_MS Funkstille — erst dann zählt
+   sie als abgeschlossen. Kontinuierliches Scrollen armet nie. */
+let smartZoomArm = 0;        // Ende der letzten abgeschlossenen Zoom-Geste
+let gestureEndT = null;      // Timer für Geste-Ende (Arming nach Idle)
+function maybeSmartZoom(e, gestureStartedNew){
   const now = performance.now();
-  if(now - smartZoomArm < 450){
+  if(smartZoomArm && now - smartZoomArm < 450 && gestureStartedNew){
     // Doppel-Geste: Zoom-Stufe an Cursor auf 100 %
     const r = board.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
@@ -2121,20 +2124,28 @@ function maybeSmartZoom(e){
     smartZoomArm = 0;
     return true;
   }
-  smartZoomArm = now;
   return false;
 }
 
 /* ── Wheel-Handler (ersetzt den simplen im Template) ─────────── */
 board.addEventListener("wheel", (e)=>{
   e.preventDefault();
+  const now = performance.now();
+  const wasIdle = (now - wheelPauseT) > WHEEL_IDLE_MS;
   const mode = classifyWheel(e);
   const damp = dampen(e);
   if(mode === "zoom"){
-    if(maybeSmartZoom(e)) return;   // Doppel-Geste → Smart Zoom
+    if(maybeSmartZoom(e, wasIdle)){ return; }  // Doppel-Geste → Smart Zoom
     applyZoom(e, damp);
   } else {
     applyPan(e, damp);
+  }
+  // Geste-Ende-Boundary: nach Funkstille armen (für Smart-Zoom-Doppel)
+  clearTimeout(gestureEndT);
+  if(mode === "zoom"){
+    gestureEndT = setTimeout(()=>{ smartZoomArm = performance.now(); }, WHEEL_IDLE_MS + 30);
+  } else {
+    smartZoomArm = 0;   // Pan unterbricht die Doppel-Geste-Sequenz
   }
 }, {passive:false});
 
