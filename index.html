@@ -1468,7 +1468,9 @@ function doUndo(){
   } else if(u.kind === "del"){
     restoreElement(u.el, u.idx, true);
   } else if(u.kind === "edge"){
-    removeEdge(u.edge);
+    // Kante zurück in das Diagramm (Undo nach removeEdge/add)
+    const d = currentDiagram();
+    if(d && !d.edges.includes(u.edge)){ d.edges.push(u.edge); }
   }
   clearSel();
   redrawEdges();
@@ -1575,14 +1577,14 @@ function removeElement(id, fromUndo=false){
   const idx = d.elements.findIndex(e => e.id === id);
   if(idx < 0) return;
   const [e] = d.elements.splice(idx, 1);
-  // Angrenzende Kanten mitentfernen
+  // Angrenzende Kanten mitentfernen — Undo-Stack: Element-Undo LAST,
+  // damit ein einzelnes Cmd+Z beides zurückholt (Edges zuerst restaurieren)
   const dropEdges = d.edges.filter(ed => ed.from === id || ed.to === id);
   d.edges = d.edges.filter(ed => !(ed.from === id || ed.to === id));
   dropEdges.forEach(ed => pushUndo({kind:"edge", edge: ed}));
   const node = document.getElementById("el-" + id);
   if(node) node.remove();
-  if(!fromUndo) pushUndo({kind:"del", el: JSON.parse(JSON.stringify(e)), idx});
-  else pushUndo({kind:"del", el: JSON.parse(JSON.stringify(e)), idx});
+  pushUndo({kind:"del", el: JSON.parse(JSON.stringify(e)), idx});
   drawMinimap();
 }
 function restoreElement(e, idx, fromUndo=false){
