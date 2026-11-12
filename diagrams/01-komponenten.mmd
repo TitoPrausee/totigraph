@@ -1,0 +1,101 @@
+flowchart TB
+    %% Diagramm 1/6: Komponentendiagramm der Sucharchitektur 
+    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team
+    subgraph QUE["Quellsysteme"]
+        subgraph QUEEV["Veranstaltungen"]
+            FRIED["Friedolin / LVIS"]
+            INDICO["Indico"]
+            MANUELL["Manuelle Erfassung, Campus-Plattform-Redaktion"]
+        end
+        subgraph QUEMED["Medien"]
+            TOBIRA["Tobira"]
+            OPENCAST["Opencast"]
+        end
+        subgraph QUECOUR["Kurse"]
+            MOODLE["Moodle"]
+            VCT["VCT, Virtual Campus Tools"]
+        end
+        MARKT["EGOCMS-Marktplatz, WordPress, Ausbau v2"]
+    end
+    subgraph ETL["ETL-Pipeline, Docker-Service"]
+        SCHED["Scheduler, Delta-Zyklus alle 15 Minuten"]
+        HOOK["Webhook-Receiver, ereignisgesteuert"]
+        ADAP["Quell-Adapter, Abruf und Delta-Erkennung"]
+        NORM["Normalisierung, Mapping aufs Index-Schema, Deduplizierung"]
+        ANR["Anreicherung, KI-Schlagwörter und Embeddings"]
+        WR["Index-Writer, Upsert und Delete"]
+    end
+    subgraph IDX["Meilisearch-Indizes"]
+        IE[("campus_events")]
+        IM[("campus_media")]
+        IC[("campus_courses")]
+        IS[("campus_suggest, optional")]
+    end
+    subgraph KI["KI-Dienste, LiteLLM Port 4000 via GPUStack"]
+        EMB["Embeddings, bge-m3"]
+        RER["Re-Ranker, stable-reranker"]
+        LLM["Kleines LLM, NL-Query-Erkennung und KI-Schlagwörter"]
+    end
+    subgraph VEC["Vektorspeicher, Hybrid-Setup, Ausbau v2"]
+        VDB[("Embedding-Index")]
+    end
+    subgraph API["Search-API"]
+        EP["REST-Endpoint /search, q, filters, facets, limit, offset"]
+        FB["Abfrage-Builder, Facetten-Filter und Boolesche Operatoren"]
+        ORCH["Verbund-Orchestrierung, parallele Abfragen, Gewichtung"]
+        HYB["Hybrid-Orchestrierung, klassisch plus Vektor, Fusion, Re-Ranking"]
+    end
+    subgraph FE["React-Frontend SPA, i18n de/en"]
+        SM["Suchmaske einfach und erweitert, Autocomplete mit Debounce"]
+        FAC["Facetten-Sidebar, kaskadierend"]
+        EL["Ergebnisliste, Karten, Highlighting, Pagination 10/20/50"]
+        DET["Detailseite mit Zurück zur Suche"]
+        UZ["URL-Zustand, q, Filter, Sortierung, Seite, Scroll-Position"]
+    end
+    QUEEV -->|"Delta-Abfrage"| ADAP
+    QUEMED -->|"Delta-Abfrage"| ADAP
+    QUECOUR -->|"Delta-Abfrage"| ADAP
+    MARKT -.->|"Ausbau v2"| ADAP
+    SCHED -->|"startet"| ADAP
+    HOOK -->|"Ereignis sofort"| ADAP
+    ADAP --> NORM
+    NORM --> ANR
+    ANR -->|"Titel und Beschreibung"| LLM
+    LLM -->|"5 bis 10 Schlagwörter"| ANR
+    ANR -->|"Titel und Beschreibung"| EMB
+    EMB -->|"Vektor"| ANR
+    ANR --> WR
+    WR -->|"Upsert und Delete"| IE
+    WR -->|"Upsert und Delete"| IM
+    WR -->|"Upsert und Delete"| IC
+    WR -.->|"optional"| IS
+    WR -->|"Vektoren"| VDB
+    SM -->|"HTTP /search"| EP
+    EP --> FB
+    FB -->|"Ist die Query natursprachlich?"| LLM
+    LLM -->|"Suchstruktur und Filter"| FB
+    FB --> ORCH
+    FB -->|"KI-Modus"| HYB
+    HYB -->|"Keyword-Teil"| ORCH
+    HYB -->|"Query-Embedding"| EMB
+    EMB -->|"Query-Vektor"| HYB
+    HYB -->|"k-Nearest-Neighbor"| VDB
+    VDB -->|"Semantische Treffer"| HYB
+    HYB -->|"Top-N Kandidaten"| RER
+    RER -->|"Neue Reihenfolge"| HYB
+    ORCH -->|"parallele Abfragen"| IE
+    ORCH -->|"parallele Abfragen"| IM
+    ORCH -->|"parallele Abfragen"| IC
+    IE -->|"Treffer und Facetten"| ORCH
+    IM -->|"Treffer und Facetten"| ORCH
+    IC -->|"Treffer und Facetten"| ORCH
+    ORCH -->|"Ergebnisliste"| EP
+    EP -->|"Ergebnisliste, Facetten, Trefferzahl"| EL
+    EL -->|"Klick auf Treffer"| DET
+    EL -.->|"aktualisiert"| UZ
+    DET -.->|"Detailzustand"| UZ
+    UZ -.->|"liest und schreibt"| SM
+    UZ -.->|"liest und schreibt"| FAC
+    UZ -.->|"stellt Liste wieder her"| EL
+    IS -.->|"Autocomplete-Vorschläge"| SM
+    FAC -->|"Filter setzen"| EP

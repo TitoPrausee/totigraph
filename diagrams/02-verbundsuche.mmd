@@ -1,0 +1,35 @@
+sequenceDiagram
+    %% Diagramm 2/6: Sequenzdiagramm Verbundsuche 
+    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team
+    autonumber
+    participant FE as Frontend SPA
+    participant API as Search-API
+    participant IE as campus_events
+    participant IM as campus_media
+    participant IC as campus_courses
+    FE->>API: GET /search mit q, filters, facets, limit, offset aus dem URL-Zustand
+    API->>API: Anfrage prüfen und Facetten-Filter aufbauen
+    par Abfrage campus_events
+        API->>IE: Keyword-Query mit Filtern und Facetten
+        IE-->>API: Trefferliste mit Quelle Friedolin, Indico oder Redaktion
+    and Abfrage campus_media
+        API->>IM: Keyword-Query mit Filtern und Facetten
+        IM-->>API: Trefferliste mit Quelle Tobira oder Opencast, Transkript-Treffer
+    and Abfrage campus_courses
+        API->>IC: Keyword-Query mit Filtern und Facetten
+        IC-->>API: Trefferliste mit Quelle Moodle oder VCT, Semester
+    end
+    API->>API: Scores normalisieren und Gesamttreffer fusionieren
+    note over API: Index-Gewichte laut Anf. 6: Veranstaltungen 1,0 / Kurse 0,9 / Medien 0,8
+    API->>API: Custom Ranking: published_date, popularity, keyword_match
+    alt Ein Index nicht erreichbar
+        API->>API: Degradierung, Ergebnisliste aus allen erreichbaren Indizes
+        API-->>FE: Ergebnisliste mit Hinweis auf eingeschränktem Index
+    else Alle Indizes verfügbar
+        API-->>FE: Ergebnisliste, Facetten und Gesamttrefferzahl
+    end
+    FE->>FE: Karten rendern mit Typ-Badge, Quelle und Highlighting, URL-Zustand setzen
+    opt Blättern oder Filter nachlegen
+        FE->>API: GET /search mit neuem offset oder erweiterten Filtern
+        note over FE,API: Ablauf wie oben, nur mit verändertem Suchzustand
+    end

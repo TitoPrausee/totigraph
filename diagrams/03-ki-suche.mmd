@@ -1,0 +1,40 @@
+sequenceDiagram
+    %% Diagramm 3/6: Sequenzdiagramm KI-Suche 
+    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team
+    autonumber
+    participant FE as Frontend SPA
+    participant API as Search-API
+    participant LLM as Kleines LLM, LiteLLM Port 4000
+    participant EMB as Embeddings, bge-m3
+    participant VDB as Vektorspeicher
+    participant IDX as Meilisearch-Indizes, Verbund
+    participant RER as Re-Ranker, stable-reranker
+    FE->>API: Frage, z. B. „Was kann ich im ersten Semester machen?“
+    API->>API: Eingabe normalisieren, Umlaute und Kleinschreibung, Anf. 7
+    opt Kleines LLM erreichbar
+        API->>LLM: NL-Erkennung der Query, Intent und Entitäten
+        LLM-->>API: JSON mit Query-Kern, Filtern, Zielgruppe und Zeitraum
+    end
+    alt Natursprachliche Query erkannt, KI-Suche
+        par Klassische Suche
+            API->>IDX: Keyword-Query mit erkannten Filtern
+            IDX-->>API: Trefferliste klassisch mit Facetten
+        and Vektor-Suche
+            API->>EMB: Query-Embedding berechnen
+            EMB-->>API: Query-Vektor
+            API->>VDB: k-Nearest-Neighbor-Suche im Embedding-Index
+            VDB-->>API: Semantische Kandidaten mit Distanz
+        end
+        API->>API: Fusion per Reciprocal Rank Fusion unter Index-Gewichten
+        API->>RER: Top-N Kandidaten plus Query
+        RER-->>API: Sortierte Treffer nach Re-Ranking
+        API-->>FE: Ergebnisliste markiert als KI-Suche
+    else Keine NL-Query, klassische Suche
+        API->>IDX: Keyword-Query ohne KI-Filter
+        IDX-->>API: Trefferliste klassisch
+        API-->>FE: Ergebnisliste
+    end
+    opt LLM, Embeddings oder Re-Ranker nicht erreichbar
+        API->>API: Fallback, nur klassische Suche mit Hinweis im Ergebnis
+    end
+    FE->>FE: Ergebnisliste anzeigen, URL-Zustand mit KI-Flag

@@ -1,0 +1,28 @@
+flowchart TD
+    %% Diagramm 6/6: Aktivitätsdiagramm der Such-UI 
+    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team
+    ST(["Suchseite geöffnet"]) --> UZL["URL-Zustand lesen, q, Filter, Sortierung, Seite, Scroll-Position"]
+    UZL --> D1{"Suchzustand in der URL vorhanden?"}
+    D1 -->|"ja"| PRE["Suchmaske, Facetten und Ergebnisliste vorbesetzen"]
+    D1 -->|"nein"| LEER["Leeres Suchfeld zeigen"]
+    PRE --> REQ["Abfrage an die Search-API senden"]
+    LEER --> EIN["Suchbegriff eingeben, Autocomplete via campus_suggest mit Debounce, Anf. 2"]
+    EIN --> D2{"Esc gedrückt, Feld geleert?"}
+    D2 -->|"ja"| EIN
+    D2 -->|"nein, Enter oder Lupe"| UPS["URL-Zustand aktualisieren, Anf. 13"]
+    UPS --> REQ
+    REQ --> ANZ["Ergebnisliste anzeigen, Karten mit Quelle und Highlighting, Skeleton-Loading, Anf. 19"]
+    ANZ --> D3{"Nächste Aktion?"}
+    D3 -->|"Filter oder Facette klicken"| FIR["Filter anwenden, kaskadierend, ODER innerhalb, UND über Facetten, Anf. 5"]
+    FIR --> UFR["URL-Zustand um Filter ergänzen"]
+    UFR --> REQ
+    D3 -->|"Seite wechseln"| PAG["Paginierung ändern, 10/20/50 mit offset, Anf. 11"]
+    PAG --> UPA["URL mit neuem offset aktualisieren"]
+    UPA --> REQ
+    D3 -->|"Ergebnis klicken"| DET["Detailseite öffnen, SPA-Route, SSR-Variante für Crawler, Anf. 17"]
+    D3 -->|"keine Aktion"| ANZ
+    ANZ -->|"Suche verlassen"| ENDE(["Ende, Suchzustand bleibt in der URL"])
+    DET --> D4{"Zurück zur Suche oder Browser-Zurück?"}
+    D4 -->|"ja"| RES["Suchzustand aus der URL rekonstruieren, Filter, Sortierung, Seite, Scroll-Position, Anf. 13"]
+    RES --> ANZ
+    D4 -->|"nein, bleibt"| DET

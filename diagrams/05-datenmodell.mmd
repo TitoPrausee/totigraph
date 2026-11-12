@@ -1,0 +1,72 @@
+classDiagram
+    %% Diagramm 5/6: Klassendiagramm der Index-Dokumente 
+    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team
+    class IndexDokument {
+        <<Basisklasse>>
+        +string id
+        +string typ
+        +string titel
+        +string titel_en
+        +string beschreibung
+        +string beschreibung_en
+        +string url
+        +string[] keywords
+        +string[] keywords_ki
+        +bool keyword_match
+        +string[] zielgruppen
+        +string sprache
+        +datetime published_date
+        +int popularity
+        +string source_system
+        +string source_url
+        +string source_label
+        +datetime last_synced
+    }
+    class EventDokument {
+        +datetime beginn
+        +datetime ende
+        +string veranstalter
+        +string ort
+        +string format
+        +string kategorie
+        +string geo
+    }
+    class MediaDokument {
+        +string opencast_id
+        +string serientitel
+        +int dauer_sekunden
+        +datetime aufnahmedatum
+        +string medientyp
+        +string transkription
+        +string[] kapitelmarken
+        +string lizenz
+        +string thumbnail_url
+    }
+    class Kursdokument {
+        +string semester
+        +string veranstaltungsart
+        +string[] modulzuordnung
+        +string studiengang
+    }
+    class Suggestdokument {
+        +string suchbegriff
+        +string quelle
+        +int gewicht
+    }
+    class Vektoreintrag {
+        +string doc_id
+        +string modell
+        +int dimension
+        +number[] vektor
+    }
+    IndexDokument <|-- EventDokument : Index campus_events
+    IndexDokument <|-- MediaDokument : Index campus_media
+    IndexDokument <|-- Kursdokument : Index campus_courses
+    IndexDokument <|-- Suggestdokument : Index campus_suggest
+    IndexDokument "1" --> "1" Vektoreintrag : Embedding im Vektorspeicher, Ausbau v2
+    note for IndexDokument "keywords aus Quellsystem und Redaktion, keywords_ki vom KI-Dienst, Anf. 4 und 9"
+    note for EventDokument "Facetten: Zeitraum, Veranstalter, Ort, Format, Schlagwörter, Zielgruppe, Sprache, Anf. 5"
+    note for MediaDokument "Facetten: Medientyp, Lizenz, Produzent, Schlagwörter, Zielgruppe, Sprache"
+    note for Kursdokument "Facetten: Semester, Zielgruppe, Schlagwörter, Sprache"
+    note for Suggestdokument "Quellen: Top-Schlagwörter, Suchhistorie, Index-Titel, Anf. 2 und 12"
+    note for Vektoreintrag "Modell bge-m3, 1024 Dimensionen, Anreicherung über ETL"
