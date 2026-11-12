@@ -3,8 +3,14 @@
 
 Zwei Diagramm-Quellen:
   diagrams/*.mmd          — Mermaid-Quellen (Rohdaten, Import-Referenz)
-  diagrams-native*.js     — Native Board-Layout (Board-Elemente), wird
-                            direkt in die Seite eingebettet
+  diagrams-native*.js     — natives Board-Layout (Data-Model)
+
+Ablauf:
+  1. index.html lesen
+  2. __EMBED_MAP__ durch JSON der Mermaid-Quellen ersetzen
+  3. /*__NATIVE__*/ durch eingebettete JS-Module ersetzen
+     (Layouts + native-render + board-kit)
+  4. dist/ schreiben (index.html + vendor/)
 
 Die Seite braucht kein Netz: JS + Diagramm-Daten landen direkt im HTML.
 """
@@ -15,6 +21,7 @@ SRC = os.path.join(ROOT, "index.html")
 DIAGRAMS = os.path.join(ROOT, "diagrams")
 NATIVE_FILES = ["diagrams-native.js", "diagrams-native-seq.js"]
 NATIVE_RENDER = os.path.join(ROOT, "native-render.js")
+BOARD_KIT = os.path.join(ROOT, "board-kit.js")
 VENDOR = os.path.join(ROOT, "vendor")
 DIST = os.path.join(ROOT, "dist")
 
@@ -28,6 +35,7 @@ for f in NATIVE_FILES:
         sys.exit("Fehlt: " + f)
     native_src += open(p, encoding="utf-8").read().strip() + "\n\n"
 native_src += open(NATIVE_RENDER, encoding="utf-8").read().strip() + "\n"
+native_src += open(BOARD_KIT, encoding="utf-8").read().strip() + "\n"
 
 if "/*__NATIVE__*/" not in html:
     sys.exit("Template unvollständig: /*__NATIVE__*/ Platzhalter fehlt.")

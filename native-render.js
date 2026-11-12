@@ -170,10 +170,8 @@ function renderEdges(diagram, byId){
     // Sequenz: Kante hat feste y (Zeitreihe) + horizontale Route
     if (ed.y !== undefined && diagram.seqCols){
       const colOf = (node) => {
-        // byId-Elemente der Sequenz sind Actors (type 'actor'); Index über ID act_N
-        const m = /act_(\d+)/.exec(node.id);
-        const idx = m ? parseInt(m[1], 10) : -1;
-        return diagram.seqCols[idx] ? diagram.seqCols[idx].x : (node.x + node.w/2);
+        // Live-Position des Actors (Drag-synchron)
+        return node ? (node.x + node.w/2) : 0;
       };
       const fx = colOf(byId[ed.from]);
       const tx = colOf(byId[ed.to]);
