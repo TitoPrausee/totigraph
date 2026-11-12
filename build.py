@@ -23,7 +23,6 @@ NATIVE_FILES = ["diagrams-native.js", "diagrams-native-seq.js"]
 NATIVE_RENDER = os.path.join(ROOT, "native-render.js")
 BOARD_KIT = os.path.join(ROOT, "board-kit.js")
 TOUCH_GESTURES = os.path.join(ROOT, "touch-gestures.js")
-FSUC_LOGIN = os.path.join(ROOT, "fsuc-login.js")
 VENDOR = os.path.join(ROOT, "vendor")
 DIST = os.path.join(ROOT, "dist")
 
