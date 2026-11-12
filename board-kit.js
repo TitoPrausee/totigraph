@@ -28,6 +28,45 @@ function boardPoint(ev){
   return [(ev.clientX - r.left - S.x)/S.z, (ev.clientY - r.top - S.y)/S.z];
 }
 
+/* ── Autosave (localStorage, pro Board) ───────────────────────── */
+const SAVE_KEY = "totigraph.board.v1";
+let saveTimer = null;
+function saveBoard(){
+  try{
+    const snap = {};
+    Object.keys(DIAGRAMS_NATIVE).forEach(k => {
+      snap[k] = {
+        elements: DIAGRAMS_NATIVE[k].elements,
+        edges: DIAGRAMS_NATIVE[k].edges,
+      };
+    });
+    localStorage.setItem(SAVE_KEY, JSON.stringify(snap));
+  }catch(err){ /* Private mode / quota — still leise */ }
+}
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveBoard, 400);
+}
+function loadBoard(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return false;
+    const snap = JSON.parse(raw);
+    let used = false;
+    Object.keys(snap).forEach(k => {
+      if(!DIAGRAMS_NATIVE[k]) return;
+      DIAGRAMS_NATIVE[k].elements = snap[k].elements;
+      DIAGRAMS_NATIVE[k].edges = snap[k].edges;
+      used = true;
+    });
+    return used;
+  }catch(err){ return false; }
+}
+function resetBoard(){
+  try{ localStorage.removeItem(SAVE_KEY); }catch(err){}
+  location.reload();
+}
+
 function dataOf(id){ return currentDiagram().elements.find(e => e.id === id); }
 function currentDiagram(){ return DIAGRAMS_NATIVE[META[cur].file]; }
 
@@ -50,6 +89,11 @@ function doUndo(){
       // Kante zurück in das Diagramm (Undo nach removeEdge/add)
       const d = currentDiagram();
       if(d && !d.edges.includes(u.edge)){ d.edges.push(u.edge); }
+    } else if(u.kind === "reedge"){
+      // Endpoint-Rewiring zurücksetzen
+      const d = currentDiagram();
+      const ed = d.edges.find(e => e === u.edge);
+      if(ed){ ed[u.prop] = u.oldId; }
     }
   };
   if(u.kind === "batch") u.steps.forEach(undoOne);
@@ -57,6 +101,7 @@ function doUndo(){
   clearSel();
   redrawEdges();
   apply();
+  scheduleSave();
 }
 
 /* ── Auswahl ───────────────────────────────────────────────────── */
@@ -93,7 +138,135 @@ function redrawEdges(){
   labels.reverse().forEach(l => world.insertBefore(l, world.firstChild));
 }
 
-/* ── Element-Drag (pointerdown auf Element) ───────────────────── */
+/* ── Edge-Endpoint-Drag: Anker greifen, ziehen, snap-pingen ───── */
+let edgeDrag = null; // {edge, end:'from'|'to', wx, wy, pingId}
+
+function edgeEndpoint(edge, end){
+  const d = currentDiagram();
+  const from = d.elements.find(e => e.id === edge.from);
+  const to = d.elements.find(e => e.id === edge.to);
+  if(!from || !to) return null;
+  if(edge.y !== undefined && d.seqCols){  // Sequenz-Kanten: y fix
+    const fx = from.x + from.w/2, tx = to.x + to.w/2;
+    return (end === "from") ? [fx, edge.y] : [tx, edge.y];
+  }
+  const fcx = from.x + from.w/2, fcy = from.y + from.h/2;
+  const tcx = to.x + to.w/2, tcy = to.y + to.h/2;
+  let a, b;
+  if(edge.back){ a = [fcx, from.y + from.h]; b = [tcx, to.y]; }
+  else if(Math.abs(tcx-fcx) > Math.abs(tcy-fcy)){
+    a = [fcx > tcx ? from.x : from.x + from.w, fcy];
+    b = [tcx > fcx ? to.x : to.x + to.w, tcy];
+  } else {
+    a = [fcx, fcy > tcy ? from.y : from.y + from.h];
+    b = [tcx, tcy > fcy ? to.y : to.y + to.h];
+  }
+  return (end === "from") ? a : b;
+}
+
+function hitEndpoint([wx, wy]){
+  const d = currentDiagram();
+  if(!d) return null;
+  for(let i = d.edges.length - 1; i >= 0; i--){
+    const ed = d.edges[i];
+    for(const end of ["from","to"]){
+      const p = edgeEndpoint(ed, end);
+      if(p && Math.hypot(p[0]-wx, p[1]-wy) < 14/S.z){
+        return {edge: ed, end};
+      }
+    }
+  }
+  return null;
+}
+
+function snapTarget([wx, wy], excludeId){
+  const d = currentDiagram();
+  if(!d) return null;
+  let best = null, bestDist = 120/S.z;
+  d.elements.forEach(e => {
+    if(e.id === excludeId || e.type === "frame") return;
+    const cx = e.x + e.w/2, cy = e.y + e.h/2;
+    const dist = Math.max(
+      Math.abs(wx - cx) - e.w/2,
+      Math.abs(wy - cy) - e.h/2,
+      0);
+    if(dist < bestDist){ bestDist = dist; best = e; }
+  });
+  return best;
+}
+
+function pingEl(id, on){
+  const node = document.getElementById("el-" + id);
+  if(node) node.classList.toggle("ping", !!on);
+}
+
+function onEdgeDragMove(ev){
+  const [wx, wy] = boardPoint(ev);
+  edgeDrag.wx = wx; edgeDrag.wy = wy;
+  const d = currentDiagram();
+  const target = snapTarget([wx, wy], edgeDrag.end === "from" ? edgeDrag.edge.to : edgeDrag.edge.from);
+  // Live-Route: Endpunkt folgt dem Cursor (oder dem Snap-Ziel)
+  const ghostPt = target ? edgeEndpoint(target, target.x + target.w/2 < wx ? "x" : "x") : null;
+  // Temporäre Endpoint-Position im Data-Model simulieren:
+  const ed = edgeDrag.edge;
+  const otherId = (edgeDrag.end === "from") ? ed.to : ed.from;
+  const other = d.elements.find(e => e.id === otherId);
+  // Route zeichnen: Cursor ↔ anderer Endpunkt, direkt routed
+  const svg = world.querySelector(":scope > svg");
+  if(svg){
+    const ax = wx, ay = wy;
+    const bx = other.x + other.w/2, by = other.y + other.h/2;
+    let a, b;
+    if(Math.abs(bx-ax) > Math.abs(by-ay)){
+      a = [ax, ay]; b = [bx > ax ? other.x : other.x + other.w, by];
+    } else {
+      a = [ax, ay]; b = [bx, by > ay ? other.y : other.y + other.h];
+    }
+    // Ghost-Overlay-Pfad (oberhalb der echten Route)
+    let ghostPath = document.getElementById("edge-ghost");
+    if(!ghostPath){
+      ghostPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      ghostPath.id = "edge-ghost";
+      ghostPath.setAttribute("stroke", "var(--blue)");
+      ghostPath.setAttribute("stroke-width", "1.6");
+      ghostPath.setAttribute("fill", "none");
+      ghostPath.setAttribute("stroke-dasharray", "5 4");
+      svg.appendChild(ghostPath);
+    }
+    ghostPath.setAttribute("d", routeManhattan(a, b));
+    ghostPath.style.display = "block";
+  }
+  // Snap-Ping
+  if(target && edgeDrag.pingId !== target.id){
+    if(edgeDrag.pingId) pingEl(edgeDrag.pingId, false);
+    pingEl(target.id, true);
+    edgeDrag.pingId = target.id;
+  } else if(!target && edgeDrag.pingId){
+    pingEl(edgeDrag.pingId, false);
+    edgeDrag.pingId = null;
+  }
+  // Cursor-Kontext: angedocktes Element merken
+  edgeDrag.target = target;
+}
+
+function onEdgeDragUp(){
+  if(!edgeDrag) return;
+  const ed = edgeDrag.edge;
+  const d = currentDiagram();
+  const newTargetId = edgeDrag.target ? edgeDrag.target.id : null;
+  const oldId = (edgeDrag.end === "from") ? ed.from : ed.to;
+  const ghost = document.getElementById("edge-ghost");
+  if(ghost) ghost.remove();
+  if(edgeDrag.pingId) pingEl(edgeDrag.pingId, false);
+  if(newTargetId && newTargetId !== oldId){
+    if(edgeDrag.end === "from") ed.from = newTargetId; else ed.to = newTargetId;
+    pushUndo({kind:"reedge", edge: ed, prop: edgeDrag.end, oldId, newId: newTargetId});
+    scheduleSave();
+  }
+  edgeDrag = null;
+  redrawEdges();
+  apply();
+}
 function onElPointerDown(ev, node){
   ev.stopPropagation();
   const id = node.id.replace(/^el-/, "");
@@ -119,7 +292,10 @@ function onElPointerMove(ev){
 }
 function onElPointerUp(){
   if(!dragEl) return;
-  if(dragEl.moved) pushUndo({kind:"move", id:dragEl.id, ox:dragEl.ox, oy:dragEl.oy, nx:dataOf(dragEl.id).x, ny:dataOf(dragEl.id).y});
+  if(dragEl.moved){
+    pushUndo({kind:"move", id:dragEl.id, ox:dragEl.ox, oy:dragEl.oy, nx:dataOf(dragEl.id).x, ny:dataOf(dragEl.id).y});
+    scheduleSave();
+  }
   dragEl = null;
 }
 
@@ -150,6 +326,7 @@ function addElement(type, wx, wy, opts={}){
   pushUndo({kind:"add", el: JSON.parse(JSON.stringify(e))});
   selectEl(node);
   drawMinimap();
+  scheduleSave();
   return e;
 }
 
@@ -170,6 +347,7 @@ function removeElement(id, fromUndo=false){
     ...dropEdges.map(ed => ({kind:"edge", edge: ed})),
   ]});
   drawMinimap();
+  scheduleSave();
 }
 function restoreElement(e, idx, fromUndo=false){
   const d = currentDiagram();
@@ -190,6 +368,7 @@ function connectEls(fromId, toId){
   pushUndo({kind:"edge", edge});
   redrawEdges();
   apply();
+  scheduleSave();
 }
 function removeEdge(edge){
   const d = currentDiagram();
@@ -247,7 +426,7 @@ function buildPalette(){
     });
     bar.appendChild(b);
   });
-  // Connect-Werkzeug + Löschen
+  // Connect-Werkzeug + Board-Reset
   const c = document.createElement("button");
   c.className = "picon pal";
   c.id = "t-connect";
@@ -255,6 +434,14 @@ function buildPalette(){
   c.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 13 7 9M6 3h7v7M13 3 8.5 7.5"/></svg>';
   c.addEventListener("click", ()=>{ selectTool("t-connect"); c.classList.add("active"); });
   bar.appendChild(c);
+  // Reset (Board-Zustand im localStorage verwerfen)
+  const rs = document.createElement("button");
+  rs.className = "picon pal";
+  rs.id = "t-reset";
+  rs.title = "Board zurücksetzen (gespeicherte Änderungen verwerfen)";
+  rs.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9M2.5 8V4.5M2.5 8H6"/></svg>';
+  rs.addEventListener("click", ()=>{ if(confirm("Board-Zustand zurücksetzen? Alle Änderungen gehen verloren.")) resetBoard(); });
+  bar.appendChild(rs);
 }
 
 function paletteIcon(type){
@@ -275,6 +462,14 @@ function paletteIcon(type){
 function wireBoard(){
   // Elemente fangen pointerdown VOR dem Board-Pan (Capture-Phase)
   board.addEventListener("pointerdown", (ev)=>{
+    // 1) Edge-Endpoint-Greif-Zone (Vorrang vor Element-Drag)
+    const [wx, wy] = boardPoint(ev);
+    const ep = hitEndpoint([wx, wy]);
+    if(ep && !document.getElementById("t-hand").classList.contains("active")){
+      ev.stopPropagation();
+      edgeDrag = {edge: ep.edge, end: ep.end, pingId: null, target: null};
+      return;
+    }
     const elNode = ev.target.closest(".n-shape,.n-pill,.n-sticky,.n-db,.n-diamond,.n-actor,.n-class,.n-frame,.n-group");
     if(!elNode) { clearSel(); return; }
     if(ev.button !== 0) return;
@@ -295,9 +490,13 @@ function wireBoard(){
 
   board.addEventListener("pointermove", (ev)=>{
     if(dragEl) onElPointerMove(ev);
+    else if(edgeDrag) onEdgeDragMove(ev);
   }, true);
   ["pointerup","pointercancel"].forEach(t=>
-    board.addEventListener(t, ()=>onElPointerUp(), true));
+    board.addEventListener(t, ()=>{
+      onElPointerUp();
+      onEdgeDragUp();
+    }, true));
 }
 
 /* CSS-Injector für Auswahl-Rahmen + Ghost (append zum <style>) */
@@ -306,6 +505,9 @@ const PAL_CSS = `
 .n-shape.sel,.n-pill.sel,.n-sticky.sel,.n-db.sel,.n-diamond.sel,.n-actor.sel,.n-class.sel,.n-frame.sel,.n-group.sel{
   outline:2px solid var(--blue);outline-offset:2px;cursor:grabbing}
 .conn-src{outline:2px dashed var(--blue);outline-offset:2px}
+.ping{outline:3px solid var(--blue)!important;outline-offset:3px;
+  box-shadow:0 0 0 6px rgba(66,98,255,.18)!important}
+.ep-cursor{cursor:crosshair}
 .pal-ghost{position:fixed;z-index:99;pointer-events:none;background:#fff;
   border:1px solid var(--blue);color:var(--blue);font-size:11px;font-weight:600;
   padding:4px 10px;border-radius:999px;box-shadow:var(--shadow-lg)}
@@ -333,5 +535,6 @@ document.addEventListener("keydown", (e)=>{
 });
 
 /* ── Init ─────────────────────────────────────────────────────── */
+loadBoard();   // gespeicherten Zustand vor dem ersten show() wiederherstellen
 wireBoard();
 buildPalette();
