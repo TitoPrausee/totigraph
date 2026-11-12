@@ -1956,9 +1956,85 @@ document.addEventListener("keydown", (e)=>{
   }
 });
 
+/* ── Hover-Tooltip: Was ist dieses Element? ───────────────────── */
+const EL_INFO = {
+  shape:   {name: "Karte",       desc: "Rechteckiges Text-Element für Bausteine und Schritte"},
+  db:      {name: "Datenquelle", desc: "Zylinder für Ablage, Index oder Datenbank"},
+  sticky:  {name: "Notiz",       desc: "Gelbes Sticky für Kommentare und Nebeninfos"},
+  pill:    {name: "Start/Ende",  desc: "Runde Pille für Start- und Endpunkte eines Ablaufs"},
+  diamond: {name: "Entscheidung",desc: "Raute für Verzweigungen — ja/nein, weiter/abbrechen"},
+  frame:   {name: "Frame",       desc: "Container, der verwandte Elemente gruppiert"},
+  actor:   {name: "Akteur",      desc: "Beteiligtes System oder Rolle im Ablauf"},
+  class:   {name: "Klasse",      desc: "Tabellarisches Datenmodell mit Feldliste"},
+  group:   {name: "Gruppe",      desc: "Logische Zusammenfassung mehrerer Elemente"},
+};
+let tipEl = null, tipTimer = null;
+
+function ensureTip(){
+  if(tipEl) return tipEl;
+  tipEl = document.createElement("div");
+  tipEl.id = "el-tip";
+  document.body.appendChild(tipEl);
+  return tipEl;
+}
+function showTip(node){
+  const id = node.id.replace(/^el-/, "");
+  const d = currentDiagram();
+  const data = d ? d.elements.find(e => e.id === id) : null;
+  if(!data) return;
+  const info = EL_INFO[data.type] || {name: "Element", desc: "Board-Element"};
+  const t = ensureTip();
+  t.innerHTML = '<span class="tip-name">' + info.name + '</span>' +
+    '<span class="tip-desc">' + info.desc + '</span>' +
+    (data.label ? '<span class="tip-label">' + String(data.label).slice(0, 60) + '</span>' : "");
+  t.style.display = "block";
+  const r = node.getBoundingClientRect();
+  t.style.left = Math.round(r.left + r.width/2) + "px";
+  t.style.top = Math.round(r.top - 8) + "px";
+}
+function hideTip(){
+  clearTimeout(tipTimer);
+  tipTimer = null;
+  if(tipEl) tipEl.style.display = "none";
+}
+function wireTooltips(){
+  world.addEventListener("pointerover", (ev)=>{
+    if(dragEl || edgeDrag) return;
+    const n = ev.target.closest && ev.target.closest("[id^=el-]");
+    if(!n || n.id === "el-tip") return;
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(()=>showTip(n), 350);
+  });
+  world.addEventListener("pointerout", (ev)=>{
+    const n = ev.target.closest && ev.target.closest("[id^=el-]");
+    if(n){ hideTip(); }
+  });
+  board.addEventListener("pointerdown", hideTip, true);
+  // Beim Scrollen/Zoomen mitziehen statt stehen lassen
+  board.addEventListener("wheel", hideTip, {passive:false});
+}
+
+/* CSS für den Tooltip */
+const TIP_CSS = `
+#el-tip{position:fixed;z-index:120;transform:translate(-50%,-100%);
+  display:none;pointer-events:none;background:rgba(5,0,56,.92);color:#fff;
+  border-radius:8px;padding:8px 12px;max-width:280px;
+  box-shadow:0 4px 14px rgba(5,0,56,.25)}
+#el-tip .tip-name{display:block;font-size:12px;font-weight:700;letter-spacing:.01em}
+#el-tip .tip-desc{display:block;font-size:11px;opacity:.75;margin-top:2px;line-height:1.35}
+#el-tip .tip-label{display:block;font-size:10.5px;opacity:.55;margin-top:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:256px}
+#el-tip::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  border-top:5px solid rgba(5,0,56,.92)}`;
+const tipStyle = document.createElement("style");
+tipStyle.textContent = TIP_CSS;
+document.head.appendChild(tipStyle);
+
 /* ── Init ─────────────────────────────────────────────────────── */
 loadBoard();   // gespeicherten Zustand vor dem ersten show() wiederherstellen
 wireBoard();
+wireTooltips();
 buildPalette();
 
 
