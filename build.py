@@ -23,6 +23,7 @@ NATIVE_FILES = ["diagrams-native.js", "diagrams-native-seq.js"]
 NATIVE_RENDER = os.path.join(ROOT, "native-render.js")
 BOARD_KIT = os.path.join(ROOT, "board-kit.js")
 TOUCH_GESTURES = os.path.join(ROOT, "touch-gestures.js")
+FSUC_LOGIN = os.path.join(ROOT, "fsuc-login.js")
 VENDOR = os.path.join(ROOT, "vendor")
 DIST = os.path.join(ROOT, "dist")
 
@@ -38,6 +39,8 @@ for f in NATIVE_FILES:
 native_src += open(NATIVE_RENDER, encoding="utf-8").read().strip() + "\n"
 native_src += open(BOARD_KIT, encoding="utf-8").read().strip() + "\n"
 native_src += open(TOUCH_GESTURES, encoding="utf-8").read().strip() + "\n"
+# Login: macht nginx (auth_basic + error_page → uml-login.html am Testserver).
+# Kein JS-Gate hier — GitHub-Demo bleibt öffentlich, Testserver hat Server-Wall.
 
 if "/*__NATIVE__*/" not in html:
     sys.exit("Template unvollständig: /*__NATIVE__*/ Platzhalter fehlt.")
