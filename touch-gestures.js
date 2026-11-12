@@ -77,11 +77,10 @@ function applyZoom(e, damp){
    Beim ersten Event einer NEUEN Geste: liegt das letzte Event der
    vorherigen Zoom-Geste < 450 ms zurück → 100 %-Zoom am Cursor. */
 let prevGestureEndT = 0;     // letztes Event der vorherigen Zoom-Geste
+let smartZoomHold = false;   // Geste nach Smart-Zoom abschließen (Rest schlucken)
 
 function maybeSmartZoom(e, wasIdle){
   const now = performance.now();
-  window.__smz = window.__smz || [];
-  window.__smz.push({wasIdle, prev: Math.round(prevGestureEndT), delta: prevGestureEndT ? Math.round(now - prevGestureEndT) : -1});
   if(wasIdle && prevGestureEndT && now - prevGestureEndT < 450){
     const r = board.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
@@ -90,6 +89,7 @@ function maybeSmartZoom(e, wasIdle){
     S.x = mx - wx; S.y = my - wy;
     animate(); apply(); hideHint();
     prevGestureEndT = 0;   // Doppel-Trigger verhindern
+    smartZoomHold = true;  // Rest-Events dieser Geste schlucken
     return true;
   }
   return false;
@@ -103,8 +103,11 @@ board.addEventListener("wheel", (e)=>{
   const mode = classifyWheel(e);
   const damp = dampen(e);
   if(mode === "zoom"){
-    if(maybeSmartZoom(e, wasIdle)){ return; }  // Doppel-Geste → Smart Zoom
-    applyZoom(e, damp);
+    if(smartZoomHold){
+      // Rest der Smart-Zoom-Geste schlucken (kein weiteres Zoomen)
+      if(wasIdle) smartZoomHold = false;
+    } else if(maybeSmartZoom(e, wasIdle)){ return; }  // Doppel-Geste → Smart Zoom
+    else applyZoom(e, damp);
   } else {
     applyPan(e, damp);
   }
