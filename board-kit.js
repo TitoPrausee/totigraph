@@ -31,25 +31,29 @@ function boardPoint(ev){
 function dataOf(id){ return currentDiagram().elements.find(e => e.id === id); }
 function currentDiagram(){ return DIAGRAMS_NATIVE[META[cur].file]; }
 
-/* Undo-Einträge: {kind:'move', id, ox, oy, nx, ny} | {kind:'add', el} |
-   {kind:'del', el} | {kind:'edge', edge} */
+/* Undo-Einträge: {kind:'batch', steps:[...]} — Delete ist ein Batch
+   (Element + angrenzende Kanten), ein Cmd+Z holt beides zurück. */
 function pushUndo(u){ undoStack.push(u); if (undoStack.length > 100) undoStack.shift(); }
 
 function doUndo(){
   const u = undoStack.pop();
   if(!u) return;
-  if(u.kind === "move"){
-    const d = dataOf(u.id);
-    if(d){ d.x = u.ox; d.y = u.oy; placeEl(u.id, d); }
-  } else if(u.kind === "add"){
-    removeElement(u.el.id, true);
-  } else if(u.kind === "del"){
-    restoreElement(u.el, u.idx, true);
-  } else if(u.kind === "edge"){
-    // Kante zurück in das Diagramm (Undo nach removeEdge/add)
-    const d = currentDiagram();
-    if(d && !d.edges.includes(u.edge)){ d.edges.push(u.edge); }
-  }
+  const undoOne = (u) => {
+    if(u.kind === "move"){
+      const d = dataOf(u.id);
+      if(d){ d.x = u.ox; d.y = u.oy; placeEl(u.id, d); }
+    } else if(u.kind === "add"){
+      removeElement(u.el.id, true);
+    } else if(u.kind === "del"){
+      restoreElement(u.el, u.idx, true);
+    } else if(u.kind === "edge"){
+      // Kante zurück in das Diagramm (Undo nach removeEdge/add)
+      const d = currentDiagram();
+      if(d && !d.edges.includes(u.edge)){ d.edges.push(u.edge); }
+    }
+  };
+  if(u.kind === "batch") u.steps.forEach(undoOne);
+  else undoOne(u);
   clearSel();
   redrawEdges();
   apply();
@@ -155,14 +159,16 @@ function removeElement(id, fromUndo=false){
   const idx = d.elements.findIndex(e => e.id === id);
   if(idx < 0) return;
   const [e] = d.elements.splice(idx, 1);
-  // Angrenzende Kanten mitentfernen — Undo-Stack: Element-Undo LAST,
-  // damit ein einzelnes Cmd+Z beides zurückholt (Edges zuerst restaurieren)
+  // Angrenzende Kanten mitentfernen — als EIN Undo-Batch: ein Cmd+Z
+  // holt Element + Kanten zusammen zurück (Del-Step zuerst restaurieren)
   const dropEdges = d.edges.filter(ed => ed.from === id || ed.to === id);
   d.edges = d.edges.filter(ed => !(ed.from === id || ed.to === id));
-  dropEdges.forEach(ed => pushUndo({kind:"edge", edge: ed}));
   const node = document.getElementById("el-" + id);
   if(node) node.remove();
-  pushUndo({kind:"del", el: JSON.parse(JSON.stringify(e)), idx});
+  pushUndo({kind:"batch", steps:[
+    {kind:"del", el: JSON.parse(JSON.stringify(e)), idx},
+    ...dropEdges.map(ed => ({kind:"edge", edge: ed})),
+  ]});
   drawMinimap();
 }
 function restoreElement(e, idx, fromUndo=false){
