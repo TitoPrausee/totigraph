@@ -80,6 +80,8 @@ let prevGestureEndT = 0;     // letztes Event der vorherigen Zoom-Geste
 
 function maybeSmartZoom(e, wasIdle){
   const now = performance.now();
+  window.__smz = window.__smz || [];
+  window.__smz.push({wasIdle, prev: Math.round(prevGestureEndT), delta: prevGestureEndT ? Math.round(now - prevGestureEndT) : -1});
   if(wasIdle && prevGestureEndT && now - prevGestureEndT < 450){
     const r = board.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
