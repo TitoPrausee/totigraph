@@ -49,6 +49,61 @@ button{font:inherit;cursor:pointer;color:inherit;border:none;background:none}
 .world.anim{transition:transform .28s cubic-bezier(.2,0,.2,1)}
 .world svg{display:block}
 
+/* ── Native Board-Elemente (statt Mermaid-SVG) ───────────────── */
+.n-frame{position:absolute;background:rgba(66,98,255,.05);
+  border:1px solid rgba(66,98,255,.30);border-radius:12px}
+.n-frame-tab{position:absolute;top:0;left:0;height:28px;padding:0 14px;
+  background:rgba(66,98,255,.12);color:var(--blue);font-size:12px;font-weight:600;
+  border-radius:12px 0 12px 0;display:inline-flex;align-items:center;
+  white-space:nowrap;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis}
+.n-shape{position:absolute;background:#fff;border:1px solid #b6b9c7;
+  border-radius:8px;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:6px 10px;font-size:12px;line-height:1.35;color:var(--ink);
+  box-shadow:0 1px 3px rgba(5,0,56,.06)}
+.n-shape.dashed{border-style:dashed;background:rgba(255,255,255,.6)}
+.n-pill{position:absolute;background:#fff;border:1.5px solid #050038;
+  border-radius:999px;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:6px 14px;font-size:12px;font-weight:600;color:var(--ink);
+  box-shadow:0 1px 3px rgba(5,0,56,.06)}
+.n-diamond{position:absolute}
+.n-diamond-label{position:absolute;inset:14px 30px;display:flex;align-items:center;
+  justify-content:center;text-align:center;font-size:11.5px;line-height:1.3;color:var(--ink)}
+.n-db{position:absolute}
+.n-db-label{position:absolute;inset:12px 12px 6px;display:flex;align-items:center;
+  justify-content:center;text-align:center;font-size:11.5px;line-height:1.3;color:var(--ink)}
+.n-sticky{position:absolute;background:#fff180;
+  border:1px solid rgba(217,185,0,.7);border-radius:4px;padding:9px 11px;
+  font-size:11.5px;line-height:1.35;color:var(--ink);
+  box-shadow:0 2px 6px rgba(5,0,56,.10);display:flex;align-items:center}
+.n-actor{position:absolute;background:#fff;border:1.5px solid #6b6e80;
+  border-radius:8px;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:5px 8px;font-size:12px;font-weight:600;color:var(--ink);
+  box-shadow:0 2px 5px rgba(5,0,56,.08)}
+.n-group{position:absolute;border:1.5px dashed rgba(66,98,255,.45);
+  border-radius:10px;background:rgba(66,98,255,.03)}
+.n-group-chip{position:absolute;top:-10px;left:12px;height:20px;padding:0 8px;
+  background:var(--blue);color:#fff;font-size:10.5px;font-weight:600;border-radius:999px;
+  display:inline-flex;align-items:center;white-space:nowrap}
+.n-class{position:absolute;background:#fff;border:1px solid #b6b9c7;border-radius:8px;
+  overflow:hidden;box-shadow:0 2px 5px rgba(5,0,56,.07)}
+.n-class-head{height:34px;background:#f2f2f7;color:var(--ink);font-size:12.5px;
+  font-weight:600;display:flex;align-items:center;justify-content:center;
+  border-bottom:1px solid #d8dae2}
+.n-class-body{padding:6px 0}
+.n-class-field{padding:3px 14px;font-size:11px;color:#42465c;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.4;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-class-note{align-items:flex-start}
+.n-edge-label{position:absolute;background:rgba(255,255,255,.94);
+  border:1px solid rgba(5,0,56,.10);border-radius:4px;padding:1px 6px;
+  font-size:10.5px;color:#42465c;white-space:nowrap;pointer-events:none;z-index:4}
+.n-msg-label{position:absolute;background:rgba(255,255,255,.94);
+  border:1px solid rgba(5,0,56,.10);border-radius:4px;padding:1px 6px;
+  font-size:10.5px;color:#42465c;white-space:nowrap;pointer-events:none;z-index:4}
+.n-msg-num{position:absolute;width:20px;height:20px;border-radius:50%;
+  background:var(--blue);color:#fff;font-size:10.5px;font-weight:700;
+  display:inline-flex;align-items:center;justify-content:center;pointer-events:none;z-index:4}
+
 /* ── Pillen-Basis (schwebende Toolbars) ─────────────────────── */
 .pill{position:absolute;z-index:10;display:flex;align-items:center;
   background:var(--pill);border-radius:8px;box-shadow:var(--shadow);
@@ -622,6 +677,753 @@ function normalizeSvg(svgText){
   return new XMLSerializer().serializeToString(svg);
 }
 
+/* ── Board-Diagramme als native Elemente ──────────────────────────
+   Jedes Diagramm ist ein Layout aus Frames, Shapes, Stickies,
+   DB-Zylindern und Connectoren — wie handgebaut auf einem Board.
+
+   Element-Typen:
+     frame   — großer Container mit Titel-Tab (Subgraph)
+     shape   — weiße abgerundete Karte (Flowchart-Node, Prozess)
+     pill    — Start/Ende (Stadium-Form, vollständig gerundet)
+     diamond — Entscheidung (Raute)
+     db      — Datenbank-Zylinder
+     sticky  — gelbe Notiz (Mermaid-Notes, Legenden)
+     seq     — Sequenzdiagramm: special handling (siehe renderSeq)
+
+   Edge: {from, to, label?, dashed?, side?} — Manhattan-Routing.
+   Layout: Koordinaten in Welt-Pixeln, handgesetzt pro Diagramm. */
+
+const K = {
+  INK: "#050038",
+  MUTED: "#5a5e73",
+  FAINT: "#9a9aa4",
+  LINE: "#5a5e73",
+  BLUE: "#4262ff",
+  BLUE_SOFT: "rgba(66,98,255,0.08)",
+  BLUE_BORDER: "rgba(66,98,255,0.45)",
+  YELLOW: "#fff180",
+  YELLOW_BORDER: "#d9b900",
+  WHITE: "#ffffff",
+  CARD_BORDER: "#b6b9c7",
+};
+
+/* ════════════════════════════════════════════════════════════════
+   1 · Komponentenübersicht (Sucharchitektur)
+   Layout: 6 Spalten-Frames: Quellen (links) → ETL → Indizes+Vektor
+           → KI → API → Frontend (rechts). Fluss von links nach rechts.
+   ════════════════════════════════════════════════════════════════ */
+const DIAGRAMS_NATIVE = {};
+
+DIAGRAMS_NATIVE["01-komponenten.mmd"] = (() => {
+  const cols = [
+    { x: 20,   w: 300, title: "Quellsysteme", color: "blue" },
+    { x: 380,  w: 300, title: "ETL-Pipeline · Docker", color: "blue" },
+    { x: 740,  w: 300, title: "Indizes · Meilisearch", color: "blue" },
+    { x: 1100, w: 300, title: "KI-Dienste · LiteLLM", color: "blue" },
+    { x: 1460, w: 300, title: "Search-API", color: "blue" },
+    { x: 1820, w: 300, title: "Frontend · React SPA", color: "blue" },
+  ];
+  const frameH = [810, 620, 620, 620, 620, 620];
+  const frames = cols.map((c, i) => ({
+    id: "F" + i, type: "frame", x: c.x, y: 60, w: c.w, h: frameH[i], label: c.title
+  }));
+
+  // Kardinalitäten: Frame-Innenbreite = 300-2*20 = 260
+  const n = (id, fx, y, label, opts={}) => ({
+    id, type: opts.type || "shape", label,
+    x: cols[fx].x + 20, y, w: 260, h: opts.h || 56, ...opts
+  });
+
+  const el = [
+    ...frames,
+    // Spalte 0: Quellen
+    n("QUEEV", 0, 120, "Veranstaltungen", {type:"shape", h:44, frame:"F0", sub:true}),
+    n("FRIED", 0, 176, "Friedolin / LVIS"),
+    n("INDICO", 0, 244, "Indico"),
+    n("MANUELL", 0, 312, "Manuelle Erfassung · Redaktion"),
+    n("QUEMED", 0, 388, "Medien", {type:"shape", h:44, frame:"F0", sub:true}),
+    n("TOBIRA", 0, 444, "Tobira"),
+    n("OPENCAST", 0, 512, "Opencast"),
+    n("QUECOUR", 0, 588, "Kurse", {type:"shape", h:44, frame:"F0", sub:true}),
+    n("MOODLE", 0, 644, "Moodle"),
+    n("VCT", 0, 712, "VCT · Virtual Campus Tools"),
+    n("MARKT", 0, 800, "EGOCMS-Marktplatz · WordPress · Ausbau v2", {h:64, dashed:true}),
+
+    // Spalte 1: ETL
+    n("SCHED", 1, 120, "Scheduler · Delta-Zyklus alle 15 min", {type:"sticky"}),
+    n("HOOK", 1, 196, "Webhook-Receiver · ereignisgesteuert", {type:"sticky"}),
+    n("ADAP", 1, 280, "Quell-Adapter · Abruf und Delta-Erkennung"),
+    n("NORM", 1, 356, "Normalisierung · Mapping aufs Index-Schema · Deduplizierung", {h:64}),
+    n("ANR", 1, 440, "Anreicherung · KI-Schlagwörter · Embeddings", {h:64}),
+    n("WR", 1, 524, "Index-Writer · Upsert und Delete"),
+
+    // Spalte 2: Indizes (DB-Zylinder)
+    n("IE", 2, 130, "campus_events", {type:"db"}),
+    n("IM", 2, 214, "campus_media", {type:"db"}),
+    n("IC", 2, 298, "campus_courses", {type:"db"}),
+    n("IS", 2, 382, "campus_suggest · optional", {type:"db", dashed:true}),
+    n("VDB", 2, 486, "Embedding-Index · Vektorspeicher · Ausbau v2", {type:"db", h:70}),
+
+    // Spalte 3: KI-Dienste
+    n("EMB", 3, 130, "Embeddings · bge-m3"),
+    n("RER", 3, 206, "Re-Ranker · stable-reranker"),
+    n("LLM", 3, 282, "Kleines LLM · NL-Query-Erkennung · KI-Schlagwörter", {h:70}),
+
+    // Spalte 4: API
+    n("EP", 4, 130, "REST-Endpoint /search · q · filters · facets · limit · offset", {h:70}),
+    n("FB", 4, 220, "Abfrage-Builder · Facetten-Filter · Boolesche Operatoren", {h:64}),
+    n("ORCH", 4, 314, "Verbund-Orchestrierung · parallele Abfragen · Gewichtung", {h:64}),
+    n("HYB", 4, 408, "Hybrid-Orchestrierung · klassisch + Vektor · Fusion · Re-Ranking", {h:70}),
+
+    // Spalte 5: Frontend
+    n("SM", 5, 120, "Suchmaske einfach + erweitert · Autocomplete mit Debounce", {h:64}),
+    n("FAC", 5, 204, "Facetten-Sidebar · kaskadierend"),
+    n("EL", 5, 280, "Ergebnisliste · Karten · Highlighting · Pagination 10/20/50", {h:64}),
+    n("DET", 5, 364, "Detailseite · Zurück zur Suche"),
+    n("UZ", 5, 450, "URL-Zustand · q · Filter · Sortierung · Seite · Scroll", {h:64}),
+  ];
+
+  const edges = [
+    // Quellen → Adapter
+    { from: "FRIED",  to: "ADAP", label: "Delta-Abfrage" },
+    { from: "INDICO", to: "ADAP", label: "Delta-Abfrage" },
+    { from: "MANUELL", to: "ADAP", label: "Delta-Abfrage" },
+    { from: "TOBIRA", to: "ADAP", label: "Delta-Abfrage" },
+    { from: "OPENCAST", to: "ADAP", label: "Delta-Abfrage" },
+    { from: "MOODLE", to: "ADAP", label: "Delta-Abfrage" },
+    { from: "VCT", to: "ADAP", label: "Delta-Abfrage" },
+    { from: "MARKT", to: "ADAP", label: "Ausbau v2", dashed: true },
+    // ETL-intern
+    { from: "SCHED", to: "ADAP", label: "startet" },
+    { from: "HOOK", to: "ADAP", label: "Ereignis sofort" },
+    { from: "ADAP", to: "NORM" },
+    { from: "NORM", to: "ANR" },
+    // KI-Schleife (Anreicherung ↔ LLM/EMB)
+    { from: "ANR", to: "LLM", label: "Titel + Beschreibung" },
+    { from: "LLM", to: "ANR", label: "5–10 Schlagwörter", dashed: true },
+    { from: "ANR", to: "EMB", label: "Titel + Beschreibung" },
+    { from: "EMB", to: "ANR", label: "Vektor", dashed: true },
+    { from: "ANR", to: "WR" },
+    // Writer → Indizes
+    { from: "WR", to: "IE", label: "Upsert + Delete" },
+    { from: "WR", to: "IM", label: "Upsert + Delete" },
+    { from: "WR", to: "IC", label: "Upsert + Delete" },
+    { from: "WR", to: "IS", label: "optional", dashed: true },
+    { from: "WR", to: "VDB", label: "Vektoren" },
+    // Frontend → API
+    { from: "SM", to: "EP", label: "HTTP /search" },
+    { from: "EP", to: "FB" },
+    { from: "FB", to: "LLM", label: "Ist die Query natursprachlich?" },
+    { from: "LLM", to: "FB", label: "Suchstruktur + Filter", dashed: true },
+    { from: "FB", to: "ORCH" },
+    { from: "FB", to: "HYB", label: "KI-Modus" },
+    { from: "HYB", to: "ORCH", label: "Keyword-Teil" },
+    { from: "HYB", to: "EMB", label: "Query-Embedding" },
+    { from: "EMB", to: "HYB", label: "Query-Vektor", dashed: true },
+    { from: "HYB", to: "VDB", label: "k-Nearest-Neighbor" },
+    { from: "VDB", to: "HYB", label: "Semantische Treffer", dashed: true },
+    { from: "HYB", to: "RER", label: "Top-N Kandidaten" },
+    { from: "RER", to: "HYB", label: "Neue Reihenfolge", dashed: true },
+    // API → Indizes (Verbund)
+    { from: "ORCH", to: "IE", label: "parallele Abfragen" },
+    { from: "ORCH", to: "IM", label: "parallele Abfragen" },
+    { from: "ORCH", to: "IC", label: "parallele Abfragen" },
+    { from: "IE", to: "ORCH", label: "Treffer + Facetten", dashed: true },
+    { from: "IM", to: "ORCH", label: "Treffer + Facetten", dashed: true },
+    { from: "IC", to: "ORCH", label: "Treffer + Facetten", dashed: true },
+    // API → Frontend
+    { from: "ORCH", to: "EP" },
+    { from: "EP", to: "EL", label: "Ergebnisliste + Facetten + Trefferzahl" },
+    { from: "EL", to: "DET", label: "Klick auf Treffer" },
+    { from: "EL", to: "UZ", label: "aktualisiert", dashed: true },
+    { from: "DET", to: "UZ", label: "Detailzustand", dashed: true },
+    { from: "UZ", to: "SM", label: "liest + schreibt", dashed: true },
+    { from: "UZ", to: "FAC", label: "liest + schreibt", dashed: true },
+    { from: "UZ", to: "EL", label: "stellt Liste wieder her", dashed: true },
+    { from: "IS", to: "SM", label: "Autocomplete-Vorschläge", dashed: true },
+    { from: "FAC", to: "EP", label: "Filter setzen" },
+  ];
+
+  return { title: "Komponentenübersicht", elements: el, edges,
+           w: cols[5].x + cols[5].w + 40, h: Math.max(...frameH) + 200 };
+})();
+
+/* ════════════════════════════════════════════════════════════════
+   6 · UI-Ablauf (Aktivitätsdiagramm) — vertikaler Flow mit Rauten
+   ════════════════════════════════════════════════════════════════ */
+DIAGRAMS_NATIVE["06-ui-aktivitaet.mmd"] = (() => {
+  const CX = 480;          // Mittelachse
+  const W = 1340, H = 1900;
+  const el = [];
+  const e = [];
+
+  const add = (id, type, label, y, opts={}) => {
+    const w = opts.w || (type === "diamond" ? 240 : 300);
+    const h = opts.h || (type === "diamond" ? 100 : 56);
+    el.push({ id, type, label, x: CX - w/2, y, w, h, ...opts });
+  };
+
+  add("ST",  "pill", "Suchseite geöffnet", 40, {type:"pill"});
+  add("UZL", "shape", "URL-Zustand lesen · q · Filter · Sortierung · Seite · Scroll", 150, {h:64});
+  add("D1",  "diamond", "Suchzustand in der URL vorhanden?", 260, {type:"diamond"});
+  add("PRE", "shape", "Suchmaske + Facetten + Ergebnisliste vorbesetzen", 420, {h:64});
+  add("LEER","shape", "Leeres Suchfeld zeigen", 420, {x: CX + 220, w: 260});
+  add("REQ", "shape", "Abfrage an die Search-API senden", 540);
+  add("EIN", "shape", "Suchbegriff eingeben · Autocomplete via campus_suggest · Debounce", 640, {h:64});
+  add("D2",  "diamond", "Esc gedrückt · Feld geleert?", 760, {type:"diamond"});
+  add("UPS", "shape", "URL-Zustand aktualisieren", 920);
+  add("ANZ", "shape", "Ergebnisliste anzeigen · Karten mit Quelle + Highlighting · Skeleton-Loading", 1010, {h:70});
+  add("D3",  "diamond", "Nächste Aktion?", 1140, {type:"diamond"});
+  add("FIR", "shape", "Filter anwenden · kaskadierend · ODER innerhalb · UND über Facetten", 1290, {x: CX - 480, y: 1290, h:70, w:320});
+  add("PAG", "shape", "Paginierung ändern · 10/20/50 mit offset", 1290, {x: CX + 60, w: 300});
+  add("DET", "shape", "Detailseite öffnen · SPA-Route · SSR-Variante für Crawler", 1290, {x: CX + 480, w: 320, h:70});
+  add("UFR", "shape", "URL-Zustand um Filter ergänzen", 1430, {x: CX - 480, w: 320});
+  add("UPA", "shape", "URL mit neuem offset aktualisieren", 1430, {x: CX + 60, w: 300});
+  add("D4",  "diamond", "Zurück zur Suche oder Browser-Zurück?", 1520, {x: CX + 480, w: 320, h:110});
+  add("RES", "shape", "Suchzustand aus der URL rekonstruieren · Filter · Sortierung · Seite · Scroll", 1660, {x: CX + 480, w: 320, h:70});
+  add("ENDE","pill", "Ende · Suchzustand bleibt in der URL", 60, {type:"pill", x: CX + 220, w: 280, h: 52});
+
+  // Kanten
+  e.push({ from:"ST", to:"UZL" });
+  e.push({ from:"UZL", to:"D1" });
+  e.push({ from:"D1", to:"PRE", label:"ja" });
+  e.push({ from:"D1", to:"LEER", label:"nein" });
+  e.push({ from:"PRE", to:"REQ" });
+  e.push({ from:"LEER", to:"EIN" });
+  e.push({ from:"EIN", to:"D2" });
+  e.push({ from:"D2", to:"EIN", label:"ja · Feld geleert", back:true });
+  e.push({ from:"D2", to:"UPS", label:"nein · Enter oder Lupe" });
+  e.push({ from:"UPS", to:"ANZ" });
+  e.push({ from:"ANZ", to:"D3" });
+  e.push({ from:"D3", to:"FIR", label:"Filter oder Facette klicken" });
+  e.push({ from:"D3", to:"PAG", label:"Seite wechseln" });
+  e.push({ from:"D3", to:"DET", label:"Ergebnis klicken" });
+  e.push({ from:"D3", to:"ANZ", label:"keine Aktion", back:true });
+  e.push({ from:"FIR", to:"UFR" });
+  e.push({ from:"UFR", to:"REQ", back:true });
+  e.push({ from:"PAG", to:"UPA" });
+  e.push({ from:"UPA", to:"REQ", back:true });
+  e.push({ from:"DET", to:"D4" });
+  e.push({ from:"D4", to:"RES", label:"ja" });
+  e.push({ from:"RES", to:"ANZ", back:true });
+  e.push({ from:"D4", to:"DET", label:"nein · bleibt", back:true });
+  e.push({ from:"ANZ", to:"ENDE", label:"Suche verlassen" });
+
+  return { title: "UI-Ablauf", elements: el, edges: e, w: W, h: H + 100 };
+})();
+
+/* ════════════════════════════════════════════════════════════════
+   Sequenzdiagramme (02, 03, 04) — als Board-Layout:
+   Akteure = weiße Karten oben, Life-Lines = gestrichelte Hairlines,
+   Messages = beschriftete Pfeile zwischen Life-Lines (Zeitreihe).
+   Selbstanrufe = Loop-Kapsel rechts. alt/par/opt-Blöcke = helle
+   Umrahmung mit Titel-Chip. Notes = gelbe Stickies.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Sequenz-Helfer: baut Elemente + Kanten aus einer deklarativen Liste */
+function seqDiagram({title, actors, steps, noteW=260}) {
+  const el = [], edges = [];
+  const TOP = 40;          // Akteur-Y
+  const CARD_H = 52;
+  const firstY = TOP + CARD_H + 60;   // erste Message-Y
+  const ROW = 74;          // Zeilenhöhe
+  const ACT_W = 170, ACT_GAP = 40;
+  const N = actors.length;
+  const W = N * ACT_W + (N-1) * ACT_GAP + 120;
+  const colX = (i) => 60 + i * (ACT_W + ACT_GAP) + ACT_W/2; // Mitte der Life-Line
+  const H = firstY + steps.length * ROW + 160;
+
+  // Akteur-Karten
+  actors.forEach((a, i) => {
+    el.push({ id: "act_" + i, type: "actor", label: a,
+      x: colX(i) - ACT_W/2, y: TOP, w: ACT_W, h: CARD_H });
+  });
+
+  // Steps: {from, to, label?, dashed?, note?, self?, group?: {title, rows:[idx...], color?}}
+  let msgNum = 0;   // nur echte Messages zählen (Notes/Selfs ohne Chip-Doppelzählung)
+  steps.forEach((s, i) => {
+    const y = firstY + i * ROW;
+    if (s.note) {
+      el.push({ id: "note_" + i, type: "sticky", label: s.note,
+        x: colX(s.over ?? Math.floor(N/2)) - noteW/2, y: y - 18, w: noteW, h: 64 });
+      return;
+    }
+    msgNum += 1;
+    if (s.self) {
+      // Selbstanruf: kleiner Loop an der eigenen Life-Line
+      edges.push({ from: "act_" + s.from, to: "act_" + s.from,
+        label: s.label, self: true, y, num: msgNum });
+      return;
+    }
+    edges.push({ from: "act_" + s.from, to: "act_" + s.to,
+      label: s.label, dashed: s.dashed, y, num: msgNum });
+  });
+
+  // Gruppenrahmen (alt/par/opt) — als separate Elemente NACH den Steps deklariert
+  // {type:'group', title, x1(col), x2(col), y1(row), y2(row), color}
+  (steps.groups || []).forEach((g, gi) => {
+    const x = colX(Math.min(...g.cols)) - ACT_W/2 - 24;
+    const x2 = colX(Math.max(...g.cols)) + ACT_W/2 + 24;
+    el.push({ id: "grp_" + gi, type: "group", label: g.kind + " · " + g.title,
+      x, y: firstY + g.rows[0]*ROW - 30, w: x2 - x, h: (g.rows[1]-g.rows[0])*ROW + ROW - 10,
+      color: g.color || "blue" });
+  });
+
+  return { title, elements: el, edges, w: W, h: H, seqCols: actors.map((a,i)=>({label:a, x: colX(i)})) };
+}
+
+/* ── 2 · Verbundabfrage ─────────────────────────────────────────── */
+DIAGRAMS_NATIVE["02-verbundsuche.mmd"] = seqDiagram({
+  title: "Verbundabfrage",
+  actors: ["Frontend SPA", "Search-API", "campus_events", "campus_media", "campus_courses"],
+  steps: [
+    { from: 0, to: 1, label: "GET /search · q, filters, facets, limit, offset" },
+    { from: 1, to: 1, label: "Anfrage prüfen · Facetten-Filter aufbauen", self: true },
+    { from: 1, to: 2, label: "Keyword-Query mit Filtern + Facetten" },
+    { from: 2, to: 1, label: "Trefferliste · Quelle Friedolin, Indico, Redaktion", dashed: true },
+    { from: 1, to: 3, label: "Keyword-Query mit Filtern + Facetten" },
+    { from: 3, to: 1, label: "Trefferliste · Tobira, Opencast · Transkript-Treffer", dashed: true },
+    { from: 1, to: 4, label: "Keyword-Query mit Filtern + Facetten" },
+    { from: 4, to: 1, label: "Trefferliste · Moodle, VCT · Semester", dashed: true },
+    { from: 1, to: 1, label: "Scores normalisieren · Gesamttreffer fusionieren", self: true },
+    { note: "Index-Gewichte: Veranstaltungen 1,0 · Kurse 0,9 · Medien 0,8", over: 2 },
+    { from: 1, to: 1, label: "Custom Ranking: published_date · popularity · keyword_match", self: true },
+    { from: 1, to: 1, label: "Degradierung · Ergebnisliste aus erreichbaren Indizes", self: true },
+    { from: 1, to: 0, label: "Ergebnisliste mit Hinweis auf eingeschränktem Index", dashed: true },
+    { from: 1, to: 0, label: "Ergebnisliste · Facetten · Gesamttrefferzahl" },
+    { from: 0, to: 0, label: "Karten rendern · Typ-Badge · Quelle · Highlighting · URL-Zustand", self: true },
+    { from: 0, to: 1, label: "GET /search · neuer offset oder erweiterte Filter" },
+  ],
+  noteW: 300,
+});
+
+/* ── 3 · KI-gestützte Suche ─────────────────────────────────────── */
+DIAGRAMS_NATIVE["03-ki-suche.mmd"] = seqDiagram({
+  title: "KI-gestützte Suche",
+  actors: ["Frontend SPA", "Search-API", "Kleines LLM", "Embeddings", "Vektorspeicher", "Verbund-Index", "Re-Ranker"],
+  steps: [
+    { from: 0, to: 1, label: "Frage · „Was kann ich im ersten Semester machen?“" },
+    { from: 1, to: 1, label: "Eingabe normalisieren · Umlaute · Kleinschreibung", self: true },
+    { from: 1, to: 2, label: "NL-Erkennung · Query, Intent, Entitäten" },
+    { from: 2, to: 1, label: "JSON · Query-Kern, Filter, Zielgruppe, Zeitraum", dashed: true },
+    { from: 1, to: 5, label: "Keyword-Query mit erkannten Filtern" },
+    { from: 5, to: 1, label: "Trefferliste klassisch + Facetten", dashed: true },
+    { from: 1, to: 3, label: "Query-Embedding berechnen" },
+    { from: 3, to: 1, label: "Query-Vektor", dashed: true },
+    { from: 1, to: 4, label: "k-Nearest-Neighbor-Suche im Embedding-Index" },
+    { from: 4, to: 1, label: "Semantische Kandidaten mit Distanz", dashed: true },
+    { from: 1, to: 1, label: "Fusion per Reciprocal Rank Fusion unter Index-Gewichten", self: true },
+    { from: 1, to: 6, label: "Top-N Kandidaten plus Query" },
+    { from: 6, to: 1, label: "Sortierte Treffer nach Re-Ranking", dashed: true },
+    { from: 1, to: 0, label: "Ergebnisliste markiert als KI-Suche" },
+    { from: 1, to: 5, label: "Keyword-Query ohne KI-Filter" },
+    { from: 5, to: 1, label: "Trefferliste klassisch", dashed: true },
+    { from: 1, to: 0, label: "Ergebnisliste (klassisch)" },
+    { note: "Fallback: LLM, Embeddings oder Re-Ranker nicht erreichbar → nur klassische Suche, Hinweis im Ergebnis", over: 3 },
+  ],
+  noteW: 340,
+});
+
+/* ── 4 · ETL-Pipeline ───────────────────────────────────────────── */
+DIAGRAMS_NATIVE["04-etl-pipeline.mmd"] = seqDiagram({
+  title: "ETL-Pipeline",
+  actors: ["Scheduler", "Webhook-Receiver", "ETL-Pipeline", "Quellsysteme", "Kleines LLM", "Embeddings", "Index + Vektor"],
+  steps: [
+    { note: "Loop: alle 15 Minuten, je Quellsystem · Vollreindexierung nur bei Schemaänderung (v1 §1.3)", over: 2 },
+    { from: 0, to: 2, label: "Delta-Lauf starten" },
+    { from: 2, to: 3, label: "Änderungen seit last_synced abfragen" },
+    { from: 3, to: 2, label: "Geänderte Datensätze als JSON · leere Liste wenn nichts neu", dashed: true },
+    { from: 2, to: 2, label: "Normalisierung + Mapping aufs Index-Schema · Deduplizierung", self: true },
+    { from: 2, to: 4, label: "KI-Schlagwörter generieren · Titel, Beschreibung, Transkript" },
+    { from: 4, to: 2, label: "5 bis 10 Schlagwörter", dashed: true },
+    { from: 2, to: 2, label: "Validierung gegen Thesaurus + Synonym-Map", self: true },
+    { from: 2, to: 5, label: "Dokument-Embeddings berechnen" },
+    { from: 5, to: 2, label: "Vektoren je Dokument", dashed: true },
+    { from: 2, to: 6, label: "Upsert der Dokumente" },
+    { from: 6, to: 2, label: "Bestätigung", dashed: true },
+    { from: 2, to: 2, label: "last_synced je Quelle aktualisieren", self: true },
+    { from: 2, to: 6, label: "Delete im Index + Vektorspeicher (abgelaufen, gelöscht)" },
+    { note: "Webhook-Weg für Quellen mit Auslöser: sofort statt im Delta-Lauf", over: 1 },
+    { from: 3, to: 1, label: "Änderungsmeldung über Webhook" },
+    { from: 1, to: 2, label: "Einzelauftrag einreihen" },
+    { from: 2, to: 3, label: "Einzeldokument abrufen" },
+    { from: 3, to: 2, label: "Dokument", dashed: true },
+    { from: 2, to: 5, label: "Vektor für das Einzeldokument" },
+    { from: 5, to: 2, label: "Vektor", dashed: true },
+    { from: 2, to: 4, label: "KI-Schlagwörter inline generieren" },
+    { from: 4, to: 2, label: "Schlagwörter", dashed: true },
+    { from: 2, to: 6, label: "Upsert des Einzeldokuments" },
+  ],
+  noteW: 340,
+});
+
+/* ════════════════════════════════════════════════════════════════
+   5 · Datenmodell — Klassendiagramm als Board:
+   Klassen = weiße Karten mit Titelzeile + Feldliste (Tabelle-Look),
+   Vererbung = Pfeile, Notes = gelbe Stickies.
+   ════════════════════════════════════════════════════════════════ */
+DIAGRAMS_NATIVE["05-datenmodell.mmd"] = (() => {
+  const cls = (id, label, fields, x, y, w=300, note) => {
+    const el = { id, type: "class", label, fields,
+      x, y, w, h: 46 + fields.length * 22 + 10 };
+    if (note) el.note = note; // als Sticky neben der Karte gerendert
+    return el;
+  };
+
+  const el = [
+    cls("IDX", "IndexDokument", [
+      "id · typ · titel · titel_en",
+      "beschreibung · beschreibung_en",
+      "url · keywords · keywords_ki",
+      "keyword_match · zielgruppen",
+      "sprache · published_date",
+      "popularity · source_system",
+      "source_url · source_label · last_synced",
+    ], 620, 40, 340, "keywords aus Quellsystem + Redaktion · keywords_ki vom KI-Dienst"),
+
+    cls("EVT", "EventDokument", [
+      "beginn · ende · veranstalter",
+      "ort · format · kategorie · geo",
+    ], 180, 500, 340, "Index campus_events · Facetten: Zeitraum, Veranstalter, Ort, Format, Schlagwörter, Zielgruppe, Sprache"),
+
+    cls("MED", "MediaDokument", [
+      "opencast_id · serientitel",
+      "dauer_sekunden · aufnahmedatum",
+      "medientyp · transkription",
+      "kapitelmarken · lizenz · thumbnail_url",
+    ], 620, 500, 340, "Index campus_media · Facetten: Medientyp, Lizenz, Produzent, Schlagwörter, Zielgruppe, Sprache"),
+
+    cls("KUR", "Kursdokument", [
+      "semester · veranstaltungsart",
+      "modulzuordnung · studiengang",
+    ], 1060, 500, 340, "Index campus_courses · Facetten: Semester, Zielgruppe, Schlagwörter, Sprache"),
+
+    cls("SUG", "Suggestdokument", [
+      "suchbegriff · quelle · gewicht",
+    ], 180, 920, 340, "Index campus_suggest · Quellen: Top-Schlagwörter, Suchhistorie, Index-Titel"),
+
+    cls("VEC", "Vektoreintrag", [
+      "doc_id · modell · dimension",
+      "vektor (number[])",
+    ], 1060, 920, 340, "Modell bge-m3 · 1024 Dimensionen · Anreicherung über ETL · Vektorspeicher, Ausbau v2"),
+  ];
+
+  const edges = [
+    { from: "IDX", to: "EVT", label: "vererbt an · Index campus_events" },
+    { from: "IDX", to: "MED", label: "vererbt an · Index campus_media" },
+    { from: "IDX", to: "KUR", label: "vererbt an · Index campus_courses" },
+    { from: "IDX", to: "SUG", label: "vererbt an · Index campus_suggest" },
+    { from: "IDX", to: "VEC", label: "1 : 1 · Embedding im Vektorspeicher" },
+  ];
+
+  return { title: "Datenmodell", elements: el, edges, w: 1560, h: 1240 };
+})();
+
+/* ── Native-Renderer: Board-Elemente statt Mermaid-SVG ──────────
+   Rendert DIAGRAMS_NATIVE als echte Board-Objekte:
+   - DOM-Elemente für Shapes/DB/Stickies/Frames/Klassen (CSS-Look)
+   - Ein SVG-Layer darunter für Connectoren (Manhattan-Routing,
+     Pfeilspitzen, Labels mit weißer Chip-Hinterlegung)
+   Interaktion (Pan/Zoom/Fit) bleibt unverändert — es entsteht ein
+   normales Board-Layout mit nat.w/nat.h. */
+
+const NAT = {
+  get K(){ return K; },
+};
+
+function el(id, cls, style, html){
+  const d = document.createElement("div");
+  d.className = cls;
+  if (id) d.id = id;
+  if (style) Object.assign(d.style, style);
+  if (html !== undefined) d.innerHTML = html;
+  return d;
+}
+
+/* ── Element-Renderer je Typ ───────────────────────────────────── */
+function renderNativeElement(e){
+  const base = {
+    position: "absolute",
+    left: e.x + "px", top: e.y + "px",
+    width: e.w + "px", height: e.h + "px",
+  };
+
+  switch (e.type) {
+
+    case "frame":
+      return el("el-" + e.id, "n-frame", base,
+        '<div class="n-frame-tab">' + e.label + '</div>');
+
+    case "shape": {
+      const dashed = e.dashed ? " dashed" : "";
+      return el("el-" + e.id, "n-shape" + dashed, base, e.label);
+    }
+
+    case "pill":
+      return el("el-" + e.id, "n-pill", base, e.label);
+
+    case "diamond": {
+      // Raute via SVG-Polygon, Label zentriert (überlappt intentionally)
+      const d = el("el-" + e.id, "n-diamond", base);
+      const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+      svg.setAttribute("width", e.w); svg.setAttribute("height", e.h);
+      svg.setAttribute("viewBox", "0 0 " + e.w + " " + e.h);
+      svg.style.position = "absolute"; svg.style.inset = "0";
+      const p = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+      p.setAttribute("points", (e.w/2) + ",1 " + (e.w-1) + "," + (e.h/2) + " " + (e.w/2) + "," + (e.h-1) + " 1," + (e.h/2));
+      p.style.fill = "#fff"; p.style.stroke = K.CARD_BORDER; p.style["stroke-width"] = "1";
+      svg.appendChild(p);
+      d.appendChild(svg);
+      const t = el(null, "n-diamond-label", null, e.label);
+      d.appendChild(t);
+      return d;
+    }
+
+    case "db": {
+      // Zylinder: Ellipse oben + Körper + unten abgerundete Bogenlinie
+      const d = el("el-" + e.id, "n-db" + (e.dashed ? " dashed" : ""), base);
+      const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+      svg.setAttribute("width", e.w); svg.setAttribute("height", e.h);
+      svg.setAttribute("viewBox", "0 0 " + e.w + " " + e.h);
+      svg.style.position = "absolute"; svg.style.inset = "0";
+      const ry = 14;
+      const body = document.createElementNS("http://www.w3.org/2000/svg","path");
+      body.setAttribute("d",
+        "M0," + ry +
+        " a" + (e.w/2) + "," + ry + " 0 0 1 " + e.w + ",0" +
+        " v" + (e.h - 2*ry) +
+        " a" + (e.w/2) + "," + ry + " 0 0 1 -" + e.w + ",0" +
+        " z");
+      body.style.fill = "#fff"; body.style.stroke = K.CARD_BORDER;
+      body.style["stroke-width"] = "1";
+      const lid = document.createElementNS("http://www.w3.org/2000/svg","ellipse");
+      lid.setAttribute("cx", e.w/2); lid.setAttribute("cy", ry);
+      lid.setAttribute("rx", e.w/2); lid.setAttribute("ry", ry);
+      lid.style.fill = "rgba(66,98,255,0.10)"; lid.style.stroke = K.CARD_BORDER;
+      lid.style["stroke-width"] = "1";
+      svg.appendChild(body); svg.appendChild(lid);
+      d.appendChild(svg);
+      d.appendChild(el(null, "n-db-label", null, e.label));
+      return d;
+    }
+
+    case "sticky":
+      return el("el-" + e.id, "n-sticky", base, e.label);
+
+    case "actor":
+      return el("el-" + e.id, "n-actor", base, e.label);
+
+    case "group":
+      return el("el-" + e.id, "n-group", base,
+        '<div class="n-group-chip">' + e.label + '</div>');
+
+    case "class": {
+      const d = el("el-" + e.id, "n-class", base);
+      d.appendChild(el(null, "n-class-head", null, e.label));
+      const body = el(null, "n-class-body");
+      e.fields.forEach(f => body.appendChild(el(null, "n-class-field", null, f)));
+      d.appendChild(body);
+      return d;
+    }
+  }
+  return el("el-" + e.id, "n-shape", base, e.label || e.id);
+}
+
+/* ── Manhattan-Routing ─────────────────────────────────────────── */
+function anchor(e, dir){
+  // dir: 'r','l','t','b' → Ankerpunkt der Kante an der Elementgrenze
+  const cx = e.x + e.w/2, cy = e.y + e.h/2;
+  switch(dir){
+    case "r": return [e.x + e.w, cy];
+    case "l": return [e.x, cy];
+    case "t": return [cx, e.y];
+    case "b": return [cx, e.y + e.h];
+  }
+  return [cx, cy];
+}
+
+function routeManhattan(a, b, back=false){
+  // Orthogonale 3-Segment-Route mit mittlerem vertikalen/horizontalen Segment
+  const [x1, y1] = a, [x2, y2] = b;
+  const dx = x2 - x1, dy = y2 - y1;
+  if (Math.abs(dx) < 8) return "M" + x1 + "," + y1 + " L" + x2 + "," + y2;
+  if (Math.abs(dy) < 8) return "M" + x1 + "," + y1 + " L" + x2 + "," + y2;
+  const mx = x1 + dx/2;
+  return "M" + x1 + "," + y1 + " L" + mx + "," + y1 + " L" + mx + "," + y2 + " L" + x2 + "," + y2;
+}
+
+/* Pfeilspitze als Marker-Def */
+const ARROW_DEFS = `
+<defs>
+  <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#5a5e73"/>
+  </marker>
+  <marker id="arw-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+    <path d="M1,1 L9,5 L1,9" fill="none" stroke="#5a5e73" stroke-width="1.3"/>
+  </marker>
+  <marker id="arw-tri" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#4262ff"/>
+  </marker>
+  <marker id="arw-uml" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+    <path d="M1,1 L11,6 L1,11 z" fill="#ffffff" stroke="#5a5e73" stroke-width="1.2"/>
+  </marker>
+</defs>`;
+
+/* ── Kanten-Renderer ───────────────────────────────────────────── */
+function renderEdges(diagram, byId){
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", diagram.w);
+  svg.setAttribute("height", diagram.h);
+  svg.setAttribute("viewBox", "0 0 " + diagram.w + " " + diagram.h);
+  svg.style.position = "absolute";
+  svg.style.left = "0"; svg.style.top = "0";
+  svg.style.overflow = "visible";
+  svg.style.pointerEvents = "none";
+  svg.innerHTML = ARROW_DEFS;
+
+  const labels = [];
+
+  diagram.edges.forEach((ed, idx) => {
+    const from = byId[ed.from], to = byId[ed.to];
+    if(!from || !to) return;
+
+    // Sequenz: Kante hat feste y (Zeitreihe) + horizontale Route
+    if (ed.y !== undefined && diagram.seqCols){
+      const colOf = (node) => {
+        // byId-Elemente der Sequenz sind Actors (type 'actor'); Index über ID act_N
+        const m = /act_(\d+)/.exec(node.id);
+        const idx = m ? parseInt(m[1], 10) : -1;
+        return diagram.seqCols[idx] ? diagram.seqCols[idx].x : (node.x + node.w/2);
+      };
+      const fx = colOf(byId[ed.from]);
+      const tx = colOf(byId[ed.to]);
+      const y = ed.y;
+      // Life-Line-Hairlines:
+      const line = document.createElementNS(svgNS, "line");
+      line.setAttribute("x1", fx); line.setAttribute("x2", fx);
+      line.setAttribute("y1", TOP_LIFELINE); line.setAttribute("y2", diagram.h - 60);
+      line.setAttribute("stroke", "rgba(5,0,56,0.14)");
+      line.setAttribute("stroke-dasharray", "5 5");
+      line.setAttribute("stroke-width", "1");
+      svg.appendChild(line);
+      if (Math.abs(tx - fx) > 1){
+        // Message-Pfeil
+        const path = document.createElementNS(svgNS, "path");
+        path.setAttribute("d", "M" + fx + "," + y + " L" + tx + "," + y);
+        path.setAttribute("stroke", ed.dashed ? "#9a9aa4" : "#5a5e73");
+        path.setAttribute("stroke-width", "1.4");
+        if (ed.dashed) path.setAttribute("stroke-dasharray", "6 5");
+        path.setAttribute("marker-end", ed.dashed ? "url(#arw-open)" : "url(#arw)");
+        path.setAttribute("fill", "none");
+        svg.appendChild(path);
+      } else {
+        // Selbstaufruf: kleiner Loop nach rechts
+        const w = 46, h = 30;
+        const path = document.createElementNS(svgNS, "path");
+        path.setAttribute("d",
+          "M" + fx + "," + (y-8) +
+          " C" + (fx+w) + "," + (y-8) + " " + (fx+w) + "," + (y+h) + " " + fx + "," + (y+h));
+        path.setAttribute("stroke", "#5a5e73");
+        path.setAttribute("stroke-width", "1.4");
+        path.setAttribute("fill", "none");
+        path.setAttribute("marker-end", "url(#arw)");
+        svg.appendChild(path);
+      }
+      // Nummer-Chip (auch am Selbstanruf-Loop)
+      if (ed.num){
+        const nx = (Math.abs(tx-fx) > 1) ? (Math.min(fx,tx) - 14) : (fx + 30);
+        const numEl = el(null, "n-msg-num", {left: nx + "px", top: (y - 10) + "px"}, ed.num);
+        labels.push(numEl);
+      }
+      // Label-Chip über dem Pfeil
+      if (ed.label){
+        const lx = (fx + tx)/2, ly = y - 9;
+        labels.push(el(null, "n-msg-label", {left: lx + "px", top: ly + "px", transform: "translateX(-50%)"}, ed.label));
+      }
+      return;
+    }
+
+    // Standard: Manhattan zwischen Elementgrenzen
+    const fcx = from.x + from.w/2, fcy = from.y + from.h/2;
+    const tcx = to.x + to.w/2, tcy = to.y + to.h/2;
+    let a, b;
+    if (ed.back){
+      // Rückkante: unten raus, oben rein
+      a = anchor(from, "b"); b = anchor(to, "t");
+    } else if (Math.abs(tcx - fcx) > Math.abs(tcy - fcy)){
+      a = anchor(from, tcx > fcx ? "r" : "l");
+      b = anchor(to, tcx > fcx ? "l" : "r");
+    } else {
+      a = anchor(from, tcy > fcy ? "b" : "t");
+      b = anchor(to, tcy > fcy ? "t" : "b");
+    }
+
+    // Vererbung (Klassendiagramm): offene Dreieckspitze
+    const isSuper = /vererbt/.test(ed.label || "");
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", routeManhattan(a, b, ed.back));
+    path.setAttribute("stroke", ed.dashed ? "#9a9aa4" : "#5a5e73");
+    path.setAttribute("stroke-width", "1.4");
+    path.setAttribute("fill", "none");
+    if (ed.dashed) path.setAttribute("stroke-dasharray", "6 5");
+    path.setAttribute("marker-end", isSuper ? "url(#arw-uml)" : (ed.dashed ? "url(#arw-open)" : "url(#arw)"));
+    svg.appendChild(path);
+
+    // Label-Chip am Routen-Mittelpunkt — bei langen vertikalen Kanten
+    // am 35%-Punkt (nah am Start), damit Ziel-Labels nicht kollidieren
+    if (ed.label){
+      const t = (Math.abs(b[1]-a[1]) > Math.abs(b[0]-a[0]) && Math.abs(b[1]-a[1]) > 200) ? 0.32 : 0.5;
+      const midX = a[0] + (b[0]-a[0])*t, midY = a[1] + (b[1]-a[1])*t;
+      labels.push(el(null, "n-edge-label",
+        {left: midX + "px", top: midY + "px", transform: "translate(-50%,-50%)"},
+        ed.label));
+    }
+  });
+
+  return {svg, labels};
+}
+let TOP_LIFELINE = 92; // Akteur-Unterkante + gap
+
+/* ── Diagramm in world rendern ─────────────────────────────────── */
+function renderNativeDiagram(key){
+  const diagram = DIAGRAMS_NATIVE[key];
+  if(!diagram) return null;
+
+  TOP_LIFELINE = 40 + 52 + 8;  // Akteur-Top + Höhe + gap
+
+  const byId = {};
+  diagram.elements.forEach(e => byId[e.id] = e);
+
+  world.replaceChildren();
+
+  // 1) Kanten-SVG (unterhalb der Elemente im DOM = natürliche Layer-Ordnung)
+  const {svg, labels} = renderEdges(diagram, byId);
+  world.appendChild(svg);
+
+  // 2) Elemente
+  diagram.elements.forEach(e => world.appendChild(renderNativeElement(e)));
+
+  // 3) Kanten-Labels + Nummern als eigene Layer (über allem)
+  labels.forEach(l => world.appendChild(l));
+
+  // 4) Klassen-Notizen als Stickies UNTER der Karte (kein Karten-Verdecken)
+  diagram.elements.filter(e => e.type === "class" && e.note).forEach(e => {
+    const st = el(null, "n-sticky n-class-note",
+      {left: e.x + "px", top: (e.y + e.h + 12) + "px",
+       width: Math.max(240, e.w) + "px", height: "auto"},
+      e.note);
+    world.appendChild(st);
+    e._stickyH = 76; // für nat.h-Reserve
+  });
+
+  nat = { w: diagram.w, h: diagram.h };
+  return diagram;
+}
+
+/* Sticky-Höhe: auto — fit nutzt trotzdem nat.h (Board-Bounds grob ausreichend) */
+
+
 /* ── Diagrammwechsel ────────────────────────────────────────── */
 const cache = {};
 let cur = -1;
@@ -632,24 +1434,33 @@ async function show(i){
   setActive(i);
   try{
     const key = META[i].file;
-    if(!cache[key]){
-      const {svg} = await mermaid.render("mmd-" + i + "-" + Date.now(), DIAGRAMS[key]);
-      cache[key] = normalizeSvg(svg);
+    /* Native Renderer: Diagramm als Board-Elemente (Bevorzugung),
+       Mermaid-Fallback für Keys ohne natives Layout. */
+    if (DIAGRAMS_NATIVE && DIAGRAMS_NATIVE[key]){
+      const d = renderNativeDiagram(key);
+      if (!d) throw new Error("Native-Layout fehlt für " + key);
+      world.style.width = nat.w + "px";
+      world.style.height = nat.h + "px";
+    } else {
+      if(!cache[key]){
+        const {svg} = await mermaid.render("mmd-" + i + "-" + Date.now(), DIAGRAMS[key]);
+        cache[key] = normalizeSvg(svg);
+      }
+      world.replaceChildren();
+      const el = document.createElement("div");
+      el.innerHTML = cache[key];
+      const svg = el.querySelector("svg");
+      const vb = svg.viewBox ? svg.viewBox.baseVal : {width:1200, height:800};
+      nat = {w: vb.width || 1200, h: vb.height || 800};
+      svg.setAttribute("width", nat.w);
+      svg.setAttribute("height", nat.h);
+      svg.style.maxWidth = "none";
+      svg.style.width = nat.w + "px";
+      svg.style.height = nat.h + "px";
+      world.style.width = nat.w + "px";
+      world.style.height = nat.h + "px";
+      world.appendChild(svg);
     }
-    world.replaceChildren();
-    const el = document.createElement("div");
-    el.innerHTML = cache[key];
-    const svg = el.querySelector("svg");
-    const vb = svg.viewBox ? svg.viewBox.baseVal : {width:1200, height:800};
-    nat = {w: vb.width || 1200, h: vb.height || 800};
-    svg.setAttribute("width", nat.w);
-    svg.setAttribute("height", nat.h);
-    svg.style.maxWidth = "none";
-    svg.style.width = nat.w + "px";
-    svg.style.height = nat.h + "px";
-    world.style.width = nat.w + "px";
-    world.style.height = nat.h + "px";
-    world.appendChild(svg);
     fit(true);
   }catch(err){
     world.replaceChildren();
