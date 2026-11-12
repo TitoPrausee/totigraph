@@ -49,6 +49,61 @@ button{font:inherit;cursor:pointer;color:inherit;border:none;background:none}
 .world.anim{transition:transform .28s cubic-bezier(.2,0,.2,1)}
 .world svg{display:block}
 
+/* ── Native Board-Elemente (statt Mermaid-SVG) ───────────────── */
+.n-frame{position:absolute;background:rgba(66,98,255,.05);
+  border:1px solid rgba(66,98,255,.30);border-radius:12px}
+.n-frame-tab{position:absolute;top:0;left:0;height:28px;padding:0 14px;
+  background:rgba(66,98,255,.12);color:var(--blue);font-size:12px;font-weight:600;
+  border-radius:12px 0 12px 0;display:inline-flex;align-items:center;
+  white-space:nowrap;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis}
+.n-shape{position:absolute;background:#fff;border:1px solid #b6b9c7;
+  border-radius:8px;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:6px 10px;font-size:12px;line-height:1.35;color:var(--ink);
+  box-shadow:0 1px 3px rgba(5,0,56,.06)}
+.n-shape.dashed{border-style:dashed;background:rgba(255,255,255,.6)}
+.n-pill{position:absolute;background:#fff;border:1.5px solid #050038;
+  border-radius:999px;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:6px 14px;font-size:12px;font-weight:600;color:var(--ink);
+  box-shadow:0 1px 3px rgba(5,0,56,.06)}
+.n-diamond{position:absolute}
+.n-diamond-label{position:absolute;inset:14px 30px;display:flex;align-items:center;
+  justify-content:center;text-align:center;font-size:11.5px;line-height:1.3;color:var(--ink)}
+.n-db{position:absolute}
+.n-db-label{position:absolute;inset:12px 12px 6px;display:flex;align-items:center;
+  justify-content:center;text-align:center;font-size:11.5px;line-height:1.3;color:var(--ink)}
+.n-sticky{position:absolute;background:#fff180;
+  border:1px solid rgba(217,185,0,.7);border-radius:4px;padding:9px 11px;
+  font-size:11.5px;line-height:1.35;color:var(--ink);
+  box-shadow:0 2px 6px rgba(5,0,56,.10);display:flex;align-items:center}
+.n-actor{position:absolute;background:#fff;border:1.5px solid #6b6e80;
+  border-radius:8px;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:5px 8px;font-size:12px;font-weight:600;color:var(--ink);
+  box-shadow:0 2px 5px rgba(5,0,56,.08)}
+.n-group{position:absolute;border:1.5px dashed rgba(66,98,255,.45);
+  border-radius:10px;background:rgba(66,98,255,.03)}
+.n-group-chip{position:absolute;top:-10px;left:12px;height:20px;padding:0 8px;
+  background:var(--blue);color:#fff;font-size:10.5px;font-weight:600;border-radius:999px;
+  display:inline-flex;align-items:center;white-space:nowrap}
+.n-class{position:absolute;background:#fff;border:1px solid #b6b9c7;border-radius:8px;
+  overflow:hidden;box-shadow:0 2px 5px rgba(5,0,56,.07)}
+.n-class-head{height:34px;background:#f2f2f7;color:var(--ink);font-size:12.5px;
+  font-weight:600;display:flex;align-items:center;justify-content:center;
+  border-bottom:1px solid #d8dae2}
+.n-class-body{padding:6px 0}
+.n-class-field{padding:3px 14px;font-size:11px;color:#42465c;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.4;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-class-note{align-items:flex-start}
+.n-edge-label{position:absolute;background:rgba(255,255,255,.94);
+  border:1px solid rgba(5,0,56,.10);border-radius:4px;padding:1px 6px;
+  font-size:10.5px;color:#42465c;white-space:nowrap;pointer-events:none;z-index:4}
+.n-msg-label{position:absolute;background:rgba(255,255,255,.94);
+  border:1px solid rgba(5,0,56,.10);border-radius:4px;padding:1px 6px;
+  font-size:10.5px;color:#42465c;white-space:nowrap;pointer-events:none;z-index:4}
+.n-msg-num{position:absolute;width:20px;height:20px;border-radius:50%;
+  background:var(--blue);color:#fff;font-size:10.5px;font-weight:700;
+  display:inline-flex;align-items:center;justify-content:center;pointer-events:none;z-index:4}
+
 /* ── Pillen-Basis (schwebende Toolbars) ─────────────────────── */
 .pill{position:absolute;z-index:10;display:flex;align-items:center;
   background:var(--pill);border-radius:8px;box-shadow:var(--shadow);
@@ -622,6 +677,8 @@ function normalizeSvg(svgText){
   return new XMLSerializer().serializeToString(svg);
 }
 
+/*__NATIVE__*/
+
 /* ── Diagrammwechsel ────────────────────────────────────────── */
 const cache = {};
 let cur = -1;
@@ -632,24 +689,33 @@ async function show(i){
   setActive(i);
   try{
     const key = META[i].file;
-    if(!cache[key]){
-      const {svg} = await mermaid.render("mmd-" + i + "-" + Date.now(), DIAGRAMS[key]);
-      cache[key] = normalizeSvg(svg);
+    /* Native Renderer: Diagramm als Board-Elemente (Bevorzugung),
+       Mermaid-Fallback für Keys ohne natives Layout. */
+    if (DIAGRAMS_NATIVE && DIAGRAMS_NATIVE[key]){
+      const d = renderNativeDiagram(key);
+      if (!d) throw new Error("Native-Layout fehlt für " + key);
+      world.style.width = nat.w + "px";
+      world.style.height = nat.h + "px";
+    } else {
+      if(!cache[key]){
+        const {svg} = await mermaid.render("mmd-" + i + "-" + Date.now(), DIAGRAMS[key]);
+        cache[key] = normalizeSvg(svg);
+      }
+      world.replaceChildren();
+      const el = document.createElement("div");
+      el.innerHTML = cache[key];
+      const svg = el.querySelector("svg");
+      const vb = svg.viewBox ? svg.viewBox.baseVal : {width:1200, height:800};
+      nat = {w: vb.width || 1200, h: vb.height || 800};
+      svg.setAttribute("width", nat.w);
+      svg.setAttribute("height", nat.h);
+      svg.style.maxWidth = "none";
+      svg.style.width = nat.w + "px";
+      svg.style.height = nat.h + "px";
+      world.style.width = nat.w + "px";
+      world.style.height = nat.h + "px";
+      world.appendChild(svg);
     }
-    world.replaceChildren();
-    const el = document.createElement("div");
-    el.innerHTML = cache[key];
-    const svg = el.querySelector("svg");
-    const vb = svg.viewBox ? svg.viewBox.baseVal : {width:1200, height:800};
-    nat = {w: vb.width || 1200, h: vb.height || 800};
-    svg.setAttribute("width", nat.w);
-    svg.setAttribute("height", nat.h);
-    svg.style.maxWidth = "none";
-    svg.style.width = nat.w + "px";
-    svg.style.height = nat.h + "px";
-    world.style.width = nat.w + "px";
-    world.style.height = nat.h + "px";
-    world.appendChild(svg);
     fit(true);
   }catch(err){
     world.replaceChildren();
