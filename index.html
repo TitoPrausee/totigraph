@@ -407,22 +407,16 @@ document.getElementById("t-z100").addEventListener("click", ()=>{
 });
 document.getElementById("z-menu").addEventListener("click", ()=>fit(true));
 
-/* Wheel = Zoom am Cursor (Whiteboard-Maus-Modell) */
-board.addEventListener("wheel", (e)=>{
-  e.preventDefault();
-  const r = board.getBoundingClientRect();
-  const mx = e.clientX - r.left, my = e.clientY - r.top;
-  const dy = e.deltaMode === 1 ? e.deltaY*24 : e.deltaY;
-  const f = Math.exp(-(e.ctrlKey ? dy*2.4 : dy)*.0015);
-  zoomAt(mx, my, f);
-  hideHint();
-}, {passive:false});
+/* Wheel-Handling liegt in touch-gestures.js (Trackpad/Magic-Mouse-
+   Gesten: Pan ohne Ctrl, Zoom mit Ctrl/Cmd, Smart-Zoom, Momentum-
+   Dämpfung). Hier kein zweiter Handler — sonst doppelt. */
 
 /* Drag = Pan · 2 Pointer = Pinch · Space+Drag = Pan */
 const ptrs = new Map();
 let panStart = null, pinch = null, spaceDown = false;
 
 board.addEventListener("pointerdown", (e)=>{
+  if(e.pointerType !== "mouse") return;   // Touch-Pointer: touch-gestures.js
   if(e.button !== 0 && !spaceDown) return;
   try{ board.setPointerCapture(e.pointerId); }catch(err){}
   ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
@@ -437,6 +431,7 @@ board.addEventListener("pointerdown", (e)=>{
   }
 });
 board.addEventListener("pointermove", (e)=>{
+  if(e.pointerType !== "mouse") return;
   if(!ptrs.has(e.pointerId)) return;
   ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
   if(ptrs.size === 1 && panStart){
@@ -454,6 +449,7 @@ board.addEventListener("pointermove", (e)=>{
   }
 });
 function ptrEnd(e){
+  if(e.pointerType !== "mouse" && e.type !== "pointercancel") return;
   ptrs.delete(e.pointerId);
   if(ptrs.size === 0){ pinch = null; panStart = null; board.classList.remove("drag"); }
   else if(ptrs.size === 1){

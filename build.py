@@ -22,6 +22,7 @@ DIAGRAMS = os.path.join(ROOT, "diagrams")
 NATIVE_FILES = ["diagrams-native.js", "diagrams-native-seq.js"]
 NATIVE_RENDER = os.path.join(ROOT, "native-render.js")
 BOARD_KIT = os.path.join(ROOT, "board-kit.js")
+TOUCH_GESTURES = os.path.join(ROOT, "touch-gestures.js")
 VENDOR = os.path.join(ROOT, "vendor")
 DIST = os.path.join(ROOT, "dist")
 
@@ -36,6 +37,7 @@ for f in NATIVE_FILES:
     native_src += open(p, encoding="utf-8").read().strip() + "\n\n"
 native_src += open(NATIVE_RENDER, encoding="utf-8").read().strip() + "\n"
 native_src += open(BOARD_KIT, encoding="utf-8").read().strip() + "\n"
+native_src += open(TOUCH_GESTURES, encoding="utf-8").read().strip() + "\n"
 
 if "/*__NATIVE__*/" not in html:
     sys.exit("Template unvollständig: /*__NATIVE__*/ Platzhalter fehlt.")
