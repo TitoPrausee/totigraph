@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Totigraph — Diagramm-Board</title>
+<script src="./vendor/mermaid.min.js"></script>
+<style>
+/* ── Totigraph · Whiteboard-Board-UI ───────────────────────────
+   Canvas #F2F2F2 mit Linien-Grid, weiße schwebende Pillen mit
+   weichem Schatten, Akzent-Blau #4262FF, Tinte #050038.
+   Toolbars: Board-bar OL, Creation-Pill links vertikal,
+   Collaboration OR, Canvas-Controls UR (Zoom-% / − / + / Fit / MM). */
+:root{
+  --canvas:#f2f2f2;
+  --grid:rgba(0,0,0,.055);
+  --pill:#ffffff;
+  --ink:#050038;
+  --muted:#5a5a66;
+  --faint:#9a9aa4;
+  --divider:#e4e4e8;
+  --blue:#4262ff;
+  --blue-soft:rgba(66,98,255,.09);
+  --badge:#ff4b4b;
+  --shadow:0 2px 6px rgba(5,0,56,.08), 0 1px 2px rgba(5,0,56,.05);
+  --shadow-lg:0 4px 14px rgba(5,0,56,.12), 0 1px 3px rgba(5,0,56,.07);
+  --ease:cubic-bezier(.25,.1,.25,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{background:var(--canvas);color:var(--ink);height:100vh;overflow:hidden;
+  font:14px/1.45 "Formular",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+::selection{background:rgba(66,98,255,.18)}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:2px}
+button{font:inherit;cursor:pointer;color:inherit;border:none;background:none}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:8px}
+
+.stage{position:fixed;inset:0}
+
+/* ── Board-Fläche ───────────────────────────────────────────── */
+.board{position:absolute;inset:0;background:var(--canvas);cursor:grab;
+  touch-action:none;user-select:none;-webkit-user-select:none}
+.board.drag{cursor:grabbing}
+.board{background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+  linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:96px 96px}
+.world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+.world.anim{transition:transform .28s cubic-bezier(.2,0,.2,1)}
+.world svg{display:block}
+
+/* ── Pillen-Basis (schwebende Toolbars) ─────────────────────── */
+.pill{position:absolute;z-index:10;display:flex;align-items:center;
+  background:var(--pill);border-radius:8px;box-shadow:var(--shadow);
+  color:var(--ink)}
+.picon{display:inline-flex;align-items:center;justify-content:center;
+  width:36px;height:36px;border-radius:6px;color:var(--ink);flex-shrink:0;
+  transition:background .12s var(--ease)}
+.picon:hover{background:rgba(5,0,56,.05)}
+.picon.active{background:var(--blue-soft);color:var(--blue)}
+.picon svg{width:20px;height:20px}
+.vdiv{width:1px;height:22px;background:var(--divider);margin:0 4px;flex-shrink:0}
+
+/* ── Board-bar oben links ───────────────────────────────────── */
+.bbar{top:10px;left:10px;height:44px;padding:0 6px;gap:2px}
+.bbar .logo{font-weight:700;font-size:17px;letter-spacing:-.02em;padding:0 10px;
+  color:var(--ink)}
+.bbar .bname{font-weight:600;font-size:13.5px;padding:0 10px;white-space:nowrap;
+  max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.bbar .bname:hover{background:rgba(5,0,56,.05);border-radius:6px}
+
+/* ── Creation-Bar links vertikal ────────────────────────────── */
+.cbar{left:10px;top:50%;transform:translateY(-50%);flex-direction:column;
+  padding:6px 4px;gap:2px}
+.cbar .picon{width:40px;height:40px}
+.cbar .more{position:relative}
+.cbar .dot{position:absolute;top:5px;right:5px;width:7px;height:7px;
+  border-radius:50%;background:var(--blue);border:1.5px solid #fff}
+.undo-redo{left:10px;top:auto;bottom:64px;transform:none;height:38px;padding:0 4px;gap:2px}
+
+/* ── Collaboration-Bar oben rechts ──────────────────────────── */
+.colbar{position:absolute;top:10px;right:10px;gap:10px;align-items:stretch;
+  background:none;box-shadow:none;display:flex;z-index:10}
+.colbar .grp{display:flex;align-items:center;background:var(--pill);
+  border-radius:8px;box-shadow:var(--shadow);padding:0 4px;height:44px}
+.share{display:inline-flex;align-items:center;gap:7px;height:32px;margin:0 4px;
+  padding:0 14px;border-radius:8px;background:var(--blue);color:#fff;
+  font-weight:600;font-size:13px;transition:background .15s var(--ease)}
+.share:hover{background:#3a55e8}
+.share svg{width:16px;height:16px}
+.av{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;
+  justify-content:center;font-size:12px;font-weight:700;color:#fff;
+  border:2px solid #fff;flex-shrink:0}
+.av.a1{background:#f5a623;color:#050038;box-shadow:0 0 0 2px #ffd166}
+.av.a2{background:#f2477a;box-shadow:0 0 0 2px #ffb3c8}
+.avatars{display:flex;align-items:center;padding:0 6px}
+.avatars .av + .av{margin-left:-6px}
+.badge{position:relative}
+.badge::after{content:"1";position:absolute;top:2px;right:2px;min-width:14px;height:14px;
+  border-radius:7px;background:var(--badge);color:#fff;font-size:9px;font-weight:700;
+  display:inline-flex;align-items:center;justify-content:center;
+  border:1.5px solid #fff}
+
+/* ── Canvas-Controls unten rechts ───────────────────────────── */
+.cctrl{bottom:14px;right:14px;height:44px;padding:0 4px;gap:2px}
+.zpct{min-width:52px;text-align:center;font-size:13px;font-weight:600;
+  font-variant-numeric:tabular-nums;color:var(--ink);border-radius:6px;
+  padding:6px 2px;cursor:pointer}
+.zpct:hover{background:rgba(5,0,56,.05)}
+
+/* ── Minimap ────────────────────────────────────────────────── */
+.mmap{position:absolute;right:14px;bottom:68px;z-index:9;width:180px;height:120px;
+  background:rgba(255,255,255,.92);border:1px solid var(--divider);
+  border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+.mmap canvas{display:block;width:100%;height:100%}
+.mmap .viewport{position:absolute;border:1.5px solid var(--blue);
+  border-radius:2px;background:rgba(66,98,255,.06);pointer-events:none}
+
+/* ── Diagramm-Titel-Chip (oben mittig, dezent) ──────────────── */
+.title-chip{top:10px;left:50%;transform:translateX(-50%);height:44px;
+  padding:0 16px;gap:10px;max-width:44vw}
+.title-chip .t{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.title-chip .k{font-size:11px;color:var(--faint);white-space:nowrap}
+.title-chip nav{display:flex;gap:2px}
+
+/* ── Rail (Diagramm-Index) als linke Ausklapp-Pill ──────────── */
+.rail{left:64px;top:50%;transform:translateY(-50%);z-index:9;flex-direction:column;
+  align-items:stretch;padding:8px;gap:2px;min-width:216px}
+.rail.hidden{display:none}
+.rail-label{font-size:10.5px;font-weight:600;letter-spacing:.06em;color:var(--faint);
+  padding:6px 8px 5px;text-transform:uppercase}
+.rail .ri{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:6px;
+  cursor:pointer;font-size:13px;color:var(--muted);white-space:nowrap;
+  transition:background .12s var(--ease)}
+.rail .ri:hover{background:rgba(5,0,56,.05)}
+.rail .ri.active{background:var(--blue-soft);color:var(--blue);font-weight:600}
+.rail .ri .n{font-size:10.5px;color:var(--faint);min-width:16px;
+  font-variant-numeric:tabular-nums}
+.rail .ri.active .n{color:var(--blue)}
+.src-note{font-size:10.5px;color:var(--faint);padding:7px 9px 4px;white-space:normal;
+  line-height:1.4}
+
+/* ── Schwebender Hinweis unten mitte (interaktions-Freshman) ── */
+.hint{bottom:14px;left:50%;transform:translateX(-50%);height:36px;padding:0 14px;
+  font-size:12px;color:var(--muted);gap:8px;white-space:nowrap;opacity:1;
+  transition:opacity .5s var(--ease)}
+.hint.gone{opacity:0;pointer-events:none}
+.hint kbd{display:inline-block;padding:1px 5px;border:1px solid var(--divider);
+  border-bottom-width:2px;border-radius:4px;font-size:10.5px;font-family:inherit;
+  background:#fafafa;color:var(--ink)}
+
+@media (max-width:1000px){
+  .rail{left:56px;min-width:180px}
+  .title-chip .k{display:none}
+  .hint{display:none}
+  .bbar .bname{max-width:120px}
+}
+@media (prefers-reduced-motion:reduce){
+  .world.anim{transition:none!important}
+  *{transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div class="board" id="board">
+    <div class="world" id="world"></div>
+  </div>
+
+  <!-- Board-bar oben links -->
+  <div class="pill bbar">
+    <span class="logo">toti<span style="color:var(--blue)">·</span>graph</span>
+    <span class="vdiv"></span>
+    <button class="bname" id="board-name">Diagramm-Board</button>
+  </div>
+
+  <!-- Diagramm-Titel mittig oben -->
+  <div class="pill title-chip">
+    <span class="t" id="v-title">—</span>
+    <span class="k" id="v-kind">—</span>
+    <span class="vdiv"></span>
+    <nav aria-label="Diagrammwechsel">
+      <button class="picon" id="prev" aria-label="Vorheriges Diagramm" style="width:30px;height:30px">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10.5 3 5.5 8l5 5"/></svg>
+      </button>
+      <button class="picon" id="next" aria-label="Nächstes Diagramm" style="width:30px;height:30px">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5.5 3l5 5-5 5"/></svg>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Collaboration oben rechts -->
+  <div class="colbar">
+    <div class="grp avatars">
+      <button class="picon badge" aria-label="Aktivität">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.8V8l2.2 1.4" stroke-linecap="round"/></svg>
+      </button>
+      <span class="av a1">S</span>
+      <span class="av a2">J</span>
+    </div>
+    <div class="grp">
+      <button class="share">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2.5v7M5 5.2 8 2.5l3 2.7M3 10.5v2.2c0 .5.4.8.8.8h8.4c.4 0 .8-.3.8-.8v-2.2"/></svg>
+        Share
+      </button>
+      <button class="picon" aria-label="Kommentare">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-2.6 2.2V10.5h-2.4z"/></svg>
+      </button>
+      <button class="picon" aria-label="Hilfe">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.2"/><path d="M6.4 6.2c.2-.9 1-1.4 1.8-1.3.9.1 1.5.8 1.4 1.6-.2 1.1-1.6 1.1-1.6 2.2M8 11.2v.2"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Creation-Bar links vertikal -->
+  <div class="pill cbar" role="toolbar" aria-label="Werkzeuge">
+    <button class="picon active" id="t-select" aria-label="Auswählen" title="Auswählen (V)">
+      <svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.2 12.6 8 8.6 8.9 10.7 13 8.9 13.9 6.8 9.7 4 12.6z" stroke="#050038" stroke-width="1"/></svg>
+    </button>
+    <button class="picon" id="t-hand" aria-label="Hand/Pan" title="Hand (H)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5.3 8V3.9c0-.9 1.3-.9 1.3 0V7m0-3.6c0-.9 1.3-.9 1.3 0V7m0-2.8c0-.9 1.3-.9 1.3 0V7m0-1.9c0-.9 1.3-.9 1.3 0v3.5c0 2.5-1.7 4.4-4 4.4-2 0-3.4-1.2-4-3L2 7.4c-.3-.8.9-1.3 1.3-.5l.7 1.3"/></svg>
+    </button>
+    <button class="picon" id="t-rail" aria-label="Diagramm-Index" title="Diagramm-Index">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.2h10M3 8h10M3 11.8h6.5"/></svg>
+    </button>
+    <span class="vdiv" style="height:1px;width:24px;margin:4px auto"></span>
+    <button class="picon" id="t-z100" aria-label="Zoom 100%" title="Zoom 100% (0)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/></svg>
+    </button>
+  </div>
+
+  <!-- Undo/Redo unter der Creation-Bar -->
+  <div class="pill undo-redo" aria-label="Undo/Redo">
+    <button class="picon" aria-label="Undo" title="Undo (Cmd+Z)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5 6 4M3.5 6.5 6 9M3.5 6.5h6a3.5 3.5 0 0 1 0 7H7"/></svg>
+    </button>
+    <button class="picon" aria-label="Redo" title="Redo (Cmd+Shift+Z)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 6.5 10 4M12.5 6.5 10 9M12.5 6.5h-6a3.5 3.5 0 0 0 0 7H9"/></svg>
+    </button>
+  </div>
+
+  <!-- Diagramm-Index (Rail) -->
+  <div class="pill rail hidden" id="rail">
+    <div class="rail-label">Diagramme</div>
+  </div>
+
+  <!-- Canvas-Controls unten rechts -->
+  <div class="pill cctrl" role="toolbar" aria-label="Zoom-Steuerung">
+    <button class="picon" id="c-frames" aria-label="Frames &amp; Layers" title="Diagramm-Index (M)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="2" width="8.5" height="8.5" rx="1"/><rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1"/></svg>
+    </button>
+    <span class="vdiv"></span>
+    <button class="picon" id="z-out" aria-label="Herauszoomen" title="Herauszoomen (−)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 8h10"/></svg>
+    </button>
+    <button class="zpct" id="z-menu" aria-label="Zoom-Menü">100%</button>
+    <button class="picon" id="z-in" aria-label="Hineinzoomen" title="Hineinzoomen (+)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+    </button>
+    <span class="vdiv"></span>
+    <button class="picon" id="z-fit" aria-label="Einpassen" title="Einpassen (Alt+1)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/></svg>
+    </button>
+    <button class="picon" id="c-mm" aria-label="Minimap" title="Minimap (M)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><rect x="5" y="6.5" width="4" height="3.5" rx=".5" fill="currentColor" stroke="none"/></svg>
+    </button>
+  </div>
+
+  <!-- Minimap -->
+  <div class="mmap" id="mmap" style="display:none">
+    <canvas id="mmap-cv" width="360" height="240"></canvas>
+    <div class="viewport" id="mmap-vp"></div>
+  </div>
+
+  <!-- Hint unten mitte -->
+  <div class="pill hint" id="hint">
+    <span>Ziehen zum Schwenken · Scrollen zum Zoomen · <kbd>0</kbd> Einpassen · <kbd>M</kbd> Minimap</span>
+  </div>
+
+</div>
+
+<script>
+const DIAGRAMS = {"01-komponenten.mmd": "flowchart TB\n    %% Diagramm 1/6: Komponentendiagramm der Sucharchitektur \n    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team\n    subgraph QUE[\"Quellsysteme\"]\n        subgraph QUEEV[\"Veranstaltungen\"]\n            FRIED[\"Friedolin / LVIS\"]\n            INDICO[\"Indico\"]\n            MANUELL[\"Manuelle Erfassung, Campus-Plattform-Redaktion\"]\n        end\n        subgraph QUEMED[\"Medien\"]\n            TOBIRA[\"Tobira\"]\n            OPENCAST[\"Opencast\"]\n        end\n        subgraph QUECOUR[\"Kurse\"]\n            MOODLE[\"Moodle\"]\n            VCT[\"VCT, Virtual Campus Tools\"]\n        end\n        MARKT[\"EGOCMS-Marktplatz, WordPress, Ausbau v2\"]\n    end\n    subgraph ETL[\"ETL-Pipeline, Docker-Service\"]\n        SCHED[\"Scheduler, Delta-Zyklus alle 15 Minuten\"]\n        HOOK[\"Webhook-Receiver, ereignisgesteuert\"]\n        ADAP[\"Quell-Adapter, Abruf und Delta-Erkennung\"]\n        NORM[\"Normalisierung, Mapping aufs Index-Schema, Deduplizierung\"]\n        ANR[\"Anreicherung, KI-Schlagwörter und Embeddings\"]\n        WR[\"Index-Writer, Upsert und Delete\"]\n    end\n    subgraph IDX[\"Meilisearch-Indizes\"]\n        IE[(\"campus_events\")]\n        IM[(\"campus_media\")]\n        IC[(\"campus_courses\")]\n        IS[(\"campus_suggest, optional\")]\n    end\n    subgraph KI[\"KI-Dienste, LiteLLM Port 4000 via GPUStack\"]\n        EMB[\"Embeddings, bge-m3\"]\n        RER[\"Re-Ranker, stable-reranker\"]\n        LLM[\"Kleines LLM, NL-Query-Erkennung und KI-Schlagwörter\"]\n    end\n    subgraph VEC[\"Vektorspeicher, Hybrid-Setup, Ausbau v2\"]\n        VDB[(\"Embedding-Index\")]\n    end\n    subgraph API[\"Search-API\"]\n        EP[\"REST-Endpoint /search, q, filters, facets, limit, offset\"]\n        FB[\"Abfrage-Builder, Facetten-Filter und Boolesche Operatoren\"]\n        ORCH[\"Verbund-Orchestrierung, parallele Abfragen, Gewichtung\"]\n        HYB[\"Hybrid-Orchestrierung, klassisch plus Vektor, Fusion, Re-Ranking\"]\n    end\n    subgraph FE[\"React-Frontend SPA, i18n de/en\"]\n        SM[\"Suchmaske einfach und erweitert, Autocomplete mit Debounce\"]\n        FAC[\"Facetten-Sidebar, kaskadierend\"]\n        EL[\"Ergebnisliste, Karten, Highlighting, Pagination 10/20/50\"]\n        DET[\"Detailseite mit Zurück zur Suche\"]\n        UZ[\"URL-Zustand, q, Filter, Sortierung, Seite, Scroll-Position\"]\n    end\n    QUEEV -->|\"Delta-Abfrage\"| ADAP\n    QUEMED -->|\"Delta-Abfrage\"| ADAP\n    QUECOUR -->|\"Delta-Abfrage\"| ADAP\n    MARKT -.->|\"Ausbau v2\"| ADAP\n    SCHED -->|\"startet\"| ADAP\n    HOOK -->|\"Ereignis sofort\"| ADAP\n    ADAP --> NORM\n    NORM --> ANR\n    ANR -->|\"Titel und Beschreibung\"| LLM\n    LLM -->|\"5 bis 10 Schlagwörter\"| ANR\n    ANR -->|\"Titel und Beschreibung\"| EMB\n    EMB -->|\"Vektor\"| ANR\n    ANR --> WR\n    WR -->|\"Upsert und Delete\"| IE\n    WR -->|\"Upsert und Delete\"| IM\n    WR -->|\"Upsert und Delete\"| IC\n    WR -.->|\"optional\"| IS\n    WR -->|\"Vektoren\"| VDB\n    SM -->|\"HTTP /search\"| EP\n    EP --> FB\n    FB -->|\"Ist die Query natursprachlich?\"| LLM\n    LLM -->|\"Suchstruktur und Filter\"| FB\n    FB --> ORCH\n    FB -->|\"KI-Modus\"| HYB\n    HYB -->|\"Keyword-Teil\"| ORCH\n    HYB -->|\"Query-Embedding\"| EMB\n    EMB -->|\"Query-Vektor\"| HYB\n    HYB -->|\"k-Nearest-Neighbor\"| VDB\n    VDB -->|\"Semantische Treffer\"| HYB\n    HYB -->|\"Top-N Kandidaten\"| RER\n    RER -->|\"Neue Reihenfolge\"| HYB\n    ORCH -->|\"parallele Abfragen\"| IE\n    ORCH -->|\"parallele Abfragen\"| IM\n    ORCH -->|\"parallele Abfragen\"| IC\n    IE -->|\"Treffer und Facetten\"| ORCH\n    IM -->|\"Treffer und Facetten\"| ORCH\n    IC -->|\"Treffer und Facetten\"| ORCH\n    ORCH -->|\"Ergebnisliste\"| EP\n    EP -->|\"Ergebnisliste, Facetten, Trefferzahl\"| EL\n    EL -->|\"Klick auf Treffer\"| DET\n    EL -.->|\"aktualisiert\"| UZ\n    DET -.->|\"Detailzustand\"| UZ\n    UZ -.->|\"liest und schreibt\"| SM\n    UZ -.->|\"liest und schreibt\"| FAC\n    UZ -.->|\"stellt Liste wieder her\"| EL\n    IS -.->|\"Autocomplete-Vorschläge\"| SM\n    FAC -->|\"Filter setzen\"| EP", "02-verbundsuche.mmd": "sequenceDiagram\n    %% Diagramm 2/6: Sequenzdiagramm Verbundsuche \n    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team\n    autonumber\n    participant FE as Frontend SPA\n    participant API as Search-API\n    participant IE as campus_events\n    participant IM as campus_media\n    participant IC as campus_courses\n    FE->>API: GET /search mit q, filters, facets, limit, offset aus dem URL-Zustand\n    API->>API: Anfrage prüfen und Facetten-Filter aufbauen\n    par Abfrage campus_events\n        API->>IE: Keyword-Query mit Filtern und Facetten\n        IE-->>API: Trefferliste mit Quelle Friedolin, Indico oder Redaktion\n    and Abfrage campus_media\n        API->>IM: Keyword-Query mit Filtern und Facetten\n        IM-->>API: Trefferliste mit Quelle Tobira oder Opencast, Transkript-Treffer\n    and Abfrage campus_courses\n        API->>IC: Keyword-Query mit Filtern und Facetten\n        IC-->>API: Trefferliste mit Quelle Moodle oder VCT, Semester\n    end\n    API->>API: Scores normalisieren und Gesamttreffer fusionieren\n    note over API: Index-Gewichte laut Anf. 6: Veranstaltungen 1,0 / Kurse 0,9 / Medien 0,8\n    API->>API: Custom Ranking: published_date, popularity, keyword_match\n    alt Ein Index nicht erreichbar\n        API->>API: Degradierung, Ergebnisliste aus allen erreichbaren Indizes\n        API-->>FE: Ergebnisliste mit Hinweis auf eingeschränktem Index\n    else Alle Indizes verfügbar\n        API-->>FE: Ergebnisliste, Facetten und Gesamttrefferzahl\n    end\n    FE->>FE: Karten rendern mit Typ-Badge, Quelle und Highlighting, URL-Zustand setzen\n    opt Blättern oder Filter nachlegen\n        FE->>API: GET /search mit neuem offset oder erweiterten Filtern\n        note over FE,API: Ablauf wie oben, nur mit verändertem Suchzustand\n    end", "03-ki-suche.mmd": "sequenceDiagram\n    %% Diagramm 3/6: Sequenzdiagramm KI-Suche \n    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team\n    autonumber\n    participant FE as Frontend SPA\n    participant API as Search-API\n    participant LLM as Kleines LLM, LiteLLM Port 4000\n    participant EMB as Embeddings, bge-m3\n    participant VDB as Vektorspeicher\n    participant IDX as Meilisearch-Indizes, Verbund\n    participant RER as Re-Ranker, stable-reranker\n    FE->>API: Frage, z. B. „Was kann ich im ersten Semester machen?“\n    API->>API: Eingabe normalisieren, Umlaute und Kleinschreibung, Anf. 7\n    opt Kleines LLM erreichbar\n        API->>LLM: NL-Erkennung der Query, Intent und Entitäten\n        LLM-->>API: JSON mit Query-Kern, Filtern, Zielgruppe und Zeitraum\n    end\n    alt Natursprachliche Query erkannt, KI-Suche\n        par Klassische Suche\n            API->>IDX: Keyword-Query mit erkannten Filtern\n            IDX-->>API: Trefferliste klassisch mit Facetten\n        and Vektor-Suche\n            API->>EMB: Query-Embedding berechnen\n            EMB-->>API: Query-Vektor\n            API->>VDB: k-Nearest-Neighbor-Suche im Embedding-Index\n            VDB-->>API: Semantische Kandidaten mit Distanz\n        end\n        API->>API: Fusion per Reciprocal Rank Fusion unter Index-Gewichten\n        API->>RER: Top-N Kandidaten plus Query\n        RER-->>API: Sortierte Treffer nach Re-Ranking\n        API-->>FE: Ergebnisliste markiert als KI-Suche\n    else Keine NL-Query, klassische Suche\n        API->>IDX: Keyword-Query ohne KI-Filter\n        IDX-->>API: Trefferliste klassisch\n        API-->>FE: Ergebnisliste\n    end\n    opt LLM, Embeddings oder Re-Ranker nicht erreichbar\n        API->>API: Fallback, nur klassische Suche mit Hinweis im Ergebnis\n    end\n    FE->>FE: Ergebnisliste anzeigen, URL-Zustand mit KI-Flag", "04-etl-pipeline.mmd": "sequenceDiagram\n    %% Diagramm 4/6: Sequenzdiagramm ETL und Indexierung inkl. KI-Schlagwörter \n    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team\n    autonumber\n    participant SCH as Scheduler\n    participant HOO as Webhook-Receiver\n    participant ETL as ETL-Pipeline\n    participant QUE as Quellsysteme, Friedolin, Indico, Tobira, Opencast, Moodle, VCT\n    participant LLM as Kleines LLM, LiteLLM Port 4000\n    participant EMB as Embeddings, bge-m3\n    participant IDV as Meilisearch und Vektorspeicher\n    loop Alle 15 Minuten, je Quellsystem\n        SCH->>ETL: Delta-Lauf starten\n        ETL->>QUE: Änderungen seit last_synced abfragen\n        QUE-->>ETL: Geänderte Datensätze als JSON, leere Liste wenn nichts neu\n        ETL->>ETL: Normalisierung und Mapping aufs Index-Schema, Deduplizierung\n        opt Neue oder geänderte Dokumente vorhanden\n            ETL->>LLM: KI-Schlagwörter generieren aus Titel, Beschreibung, Transkript-Auszug\n            LLM-->>ETL: 5 bis 10 Schlagwörter\n            ETL->>ETL: Validierung gegen Thesaurus und Synonym-Map, Anf. 4\n            ETL->>EMB: Dokument-Embeddings berechnen\n            EMB-->>ETL: Vektoren je Dokument\n            ETL->>IDV: Upsert der Dokumente in Meilisearch und Vektorspeicher\n            IDV-->>ETL: Bestätigung\n            ETL->>ETL: last_synced je Quelle aktualisieren\n        end\n    end\n    opt Abgelaufene oder gelöschte Einträge erkannt\n        ETL->>IDV: Delete im Index und Vektorspeicher\n    end\n    note over SCH,IDV: Vollreindexierung nur bei Schemaänderung, v1 Abschnitt 1.3\n    note over HOO,QUE: Webhook-Weg für Quellen mit Auslöser, sofort statt im Delta-Lauf\n    QUE->>HOO: Änderungsmeldung über Webhook\n    HOO->>ETL: Einzelauftrag einreihen\n    ETL->>QUE: Einzeldokument abrufen\n    QUE-->>ETL: Dokument\n    ETL->>EMB: Vektor für das Einzeldokument\n    EMB-->>ETL: Vektor\n    ETL->>LLM: KI-Schlagwörter inline generieren\n    LLM-->>ETL: Schlagwörter\n    ETL->>IDV: Upsert des Einzeldokuments\n    opt LLM oder Embeddings nicht erreichbar\n        ETL->>IDV: Dokument ohne KI-Schlagwörter indexieren, Feld bleibt leer\n        ETL->>ETL: Dokument für Nachverarbeitung vormerken\n    end", "05-datenmodell.mmd": "classDiagram\n    %% Diagramm 5/6: Klassendiagramm der Index-Dokumente \n    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team\n    class IndexDokument {\n        <<Basisklasse>>\n        +string id\n        +string typ\n        +string titel\n        +string titel_en\n        +string beschreibung\n        +string beschreibung_en\n        +string url\n        +string[] keywords\n        +string[] keywords_ki\n        +bool keyword_match\n        +string[] zielgruppen\n        +string sprache\n        +datetime published_date\n        +int popularity\n        +string source_system\n        +string source_url\n        +string source_label\n        +datetime last_synced\n    }\n    class EventDokument {\n        +datetime beginn\n        +datetime ende\n        +string veranstalter\n        +string ort\n        +string format\n        +string kategorie\n        +string geo\n    }\n    class MediaDokument {\n        +string opencast_id\n        +string serientitel\n        +int dauer_sekunden\n        +datetime aufnahmedatum\n        +string medientyp\n        +string transkription\n        +string[] kapitelmarken\n        +string lizenz\n        +string thumbnail_url\n    }\n    class Kursdokument {\n        +string semester\n        +string veranstaltungsart\n        +string[] modulzuordnung\n        +string studiengang\n    }\n    class Suggestdokument {\n        +string suchbegriff\n        +string quelle\n        +int gewicht\n    }\n    class Vektoreintrag {\n        +string doc_id\n        +string modell\n        +int dimension\n        +number[] vektor\n    }\n    IndexDokument <|-- EventDokument : Index campus_events\n    IndexDokument <|-- MediaDokument : Index campus_media\n    IndexDokument <|-- Kursdokument : Index campus_courses\n    IndexDokument <|-- Suggestdokument : Index campus_suggest\n    IndexDokument \"1\" --> \"1\" Vektoreintrag : Embedding im Vektorspeicher, Ausbau v2\n    note for IndexDokument \"keywords aus Quellsystem und Redaktion, keywords_ki vom KI-Dienst, Anf. 4 und 9\"\n    note for EventDokument \"Facetten: Zeitraum, Veranstalter, Ort, Format, Schlagwörter, Zielgruppe, Sprache, Anf. 5\"\n    note for MediaDokument \"Facetten: Medientyp, Lizenz, Produzent, Schlagwörter, Zielgruppe, Sprache\"\n    note for Kursdokument \"Facetten: Semester, Zielgruppe, Schlagwörter, Sprache\"\n    note for Suggestdokument \"Quellen: Top-Schlagwörter, Suchhistorie, Index-Titel, Anf. 2 und 12\"\n    note for Vektoreintrag \"Modell bge-m3, 1024 Dimensionen, Anreicherung über ETL\"", "06-ui-aktivitaet.mmd": "flowchart TD\n    %% Diagramm 6/6: Aktivitätsdiagramm der Such-UI \n    %% Stand: Entwurf, 12.11.2026, Überarbeitung nach Review im Team\n    ST([\"Suchseite geöffnet\"]) --> UZL[\"URL-Zustand lesen, q, Filter, Sortierung, Seite, Scroll-Position\"]\n    UZL --> D1{\"Suchzustand in der URL vorhanden?\"}\n    D1 -->|\"ja\"| PRE[\"Suchmaske, Facetten und Ergebnisliste vorbesetzen\"]\n    D1 -->|\"nein\"| LEER[\"Leeres Suchfeld zeigen\"]\n    PRE --> REQ[\"Abfrage an die Search-API senden\"]\n    LEER --> EIN[\"Suchbegriff eingeben, Autocomplete via campus_suggest mit Debounce, Anf. 2\"]\n    EIN --> D2{\"Esc gedrückt, Feld geleert?\"}\n    D2 -->|\"ja\"| EIN\n    D2 -->|\"nein, Enter oder Lupe\"| UPS[\"URL-Zustand aktualisieren, Anf. 13\"]\n    UPS --> REQ\n    REQ --> ANZ[\"Ergebnisliste anzeigen, Karten mit Quelle und Highlighting, Skeleton-Loading, Anf. 19\"]\n    ANZ --> D3{\"Nächste Aktion?\"}\n    D3 -->|\"Filter oder Facette klicken\"| FIR[\"Filter anwenden, kaskadierend, ODER innerhalb, UND über Facetten, Anf. 5\"]\n    FIR --> UFR[\"URL-Zustand um Filter ergänzen\"]\n    UFR --> REQ\n    D3 -->|\"Seite wechseln\"| PAG[\"Paginierung ändern, 10/20/50 mit offset, Anf. 11\"]\n    PAG --> UPA[\"URL mit neuem offset aktualisieren\"]\n    UPA --> REQ\n    D3 -->|\"Ergebnis klicken\"| DET[\"Detailseite öffnen, SPA-Route, SSR-Variante für Crawler, Anf. 17\"]\n    D3 -->|\"keine Aktion\"| ANZ\n    ANZ -->|\"Suche verlassen\"| ENDE([\"Ende, Suchzustand bleibt in der URL\"])\n    DET --> D4{\"Zurück zur Suche oder Browser-Zurück?\"}\n    D4 -->|\"ja\"| RES[\"Suchzustand aus der URL rekonstruieren, Filter, Sortierung, Seite, Scroll-Position, Anf. 13\"]\n    RES --> ANZ\n    D4 -->|\"nein, bleibt\"| DET"};
+const META = [
+  {file:"01-komponenten.mmd",  title:"Komponentenübersicht", kind:"Komponentendiagramm", desc:"Bausteine und Schnittstellen auf einen Blick."},
+  {file:"02-verbundsuche.mmd", title:"Verbundabfrage",      kind:"Sequenzdiagramm",     desc:"Parallele Abfragen, Fusion der Teilergebnisse, Re-Ranking."},
+  {file:"03-ki-suche.mmd",     title:"KI-gestützte Suche",  kind:"Sequenzdiagramm",     desc:"Natürlichsprachige Frage, klassischer und Vektor-Pfad, Fusion."},
+  {file:"04-etl-pipeline.mmd", title:"ETL-Pipeline",        kind:"Sequenzdiagramm",     desc:"Delta-Extraktion, Anreicherung, Index-Update."},
+  {file:"05-datenmodell.mmd",  title:"Datenmodell",         kind:"Klassendiagramm",     desc:"Feldschemata der Indizes."},
+  {file:"06-ui-aktivitaet.mmd",title:"UI-Ablauf",           kind:"Aktivitätsdiagramm",  desc:"Suchen, filtern, Detailansicht, Rückkehr mit Suchzustand."}
+];
+const RAW_BASE = "";
+
+/* ── Board-State ─────────────────────────────────────────────── */
+const board = document.getElementById("board");
+const world = document.getElementById("world");
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+let S = {x:0, y:0, z:1};
+let nat = {w:0, h:0};
+let animT = null;
+
+function apply(){
+  world.style.transform = "translate(" + S.x + "px," + S.y + "px) scale(" + S.z + ")";
+  const g = 96 * S.z;
+  board.style.backgroundSize = g + "px " + g + "px";
+  board.style.backgroundPosition = S.x + "px " + S.y + "px";
+  document.getElementById("z-menu").textContent = Math.round(S.z*100) + "%";
+  drawMinimap();
+}
+function animate(){
+  world.classList.add("anim");
+  clearTimeout(animT);
+  animT = setTimeout(()=>world.classList.remove("anim"), 320);
+}
+function fit(anim=true){
+  if(!nat.w) return;
+  const r = board.getBoundingClientRect();
+  const pad = 60; /* Diagramm muss komplett rein — Schwellwert unten, Rest per fit-z */
+  const z = clamp(Math.min((r.width-pad)/nat.w, (r.height-pad)/nat.h), .04, 1);
+  S = {x:(r.width - nat.w*z)/2, y:(r.height - nat.h*z)/2, z};
+  if(anim) animate();
+  apply();
+}
+function zoomAt(mx, my, factor, anim=false){
+  const nz = clamp(S.z*factor, .05, 4);
+  S.x = mx - (mx-S.x)*(nz/S.z);
+  S.y = my - (my-S.y)*(nz/S.z);
+  S.z = nz;
+  if(anim) animate();
+  apply();
+}
+document.getElementById("z-in").addEventListener("click", ()=>{
+  const r = board.getBoundingClientRect();
+  zoomAt(r.width/2, r.height/2, 1.35, true);
+  hideHint();
+});
+document.getElementById("z-out").addEventListener("click", ()=>{
+  const r = board.getBoundingClientRect();
+  zoomAt(r.width/2, r.height/2, 1/1.35, true);
+  hideHint();
+});
+document.getElementById("z-fit").addEventListener("click", ()=>{ fit(true); hideHint(); });
+document.getElementById("t-z100").addEventListener("click", ()=>{
+  const r = board.getBoundingClientRect();
+  const cx = r.width/2, cy = r.height/2;
+  const mx = (cx - S.x)/S.z, my = (cy - S.y)/S.z;
+  S.z = 1;
+  S.x = cx - mx; S.y = cy - my;
+  animate(); apply(); hideHint();
+});
+document.getElementById("z-menu").addEventListener("click", ()=>fit(true));
+
+/* Wheel = Zoom am Cursor (Whiteboard-Maus-Modell) */
+board.addEventListener("wheel", (e)=>{
+  e.preventDefault();
+  const r = board.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const dy = e.deltaMode === 1 ? e.deltaY*24 : e.deltaY;
+  const f = Math.exp(-(e.ctrlKey ? dy*2.4 : dy)*.0015);
+  zoomAt(mx, my, f);
+  hideHint();
+}, {passive:false});
+
+/* Drag = Pan · 2 Pointer = Pinch · Space+Drag = Pan */
+const ptrs = new Map();
+let panStart = null, pinch = null, spaceDown = false;
+
+board.addEventListener("pointerdown", (e)=>{
+  if(e.button !== 0 && !spaceDown) return;
+  try{ board.setPointerCapture(e.pointerId); }catch(err){}
+  ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  world.classList.remove("anim");
+  if(ptrs.size === 1){
+    board.classList.add("drag");
+    panStart = {x:e.clientX, y:e.clientY, sx:S.x, sy:S.y};
+  }else if(ptrs.size === 2){
+    panStart = null;
+    const p = [...ptrs.values()];
+    pinch = {d:Math.hypot(p[0].x-p[1].x, p[0].y-p[1].y)};
+  }
+});
+board.addEventListener("pointermove", (e)=>{
+  if(!ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(ptrs.size === 1 && panStart){
+    S.x = panStart.sx + (e.clientX - panStart.x);
+    S.y = panStart.sy + (e.clientY - panStart.y);
+    apply();
+  }else if(ptrs.size === 2 && pinch){
+    const p = [...ptrs.values()];
+    const d = Math.hypot(p[0].x-p[1].x, p[0].y-p[1].y);
+    if(pinch.d > 0 && d > 0){
+      const r = board.getBoundingClientRect();
+      zoomAt((p[0].x+p[1].x)/2 - r.left, (p[0].y+p[1].y)/2 - r.top, d/pinch.d);
+    }
+    pinch.d = d;
+  }
+});
+function ptrEnd(e){
+  ptrs.delete(e.pointerId);
+  if(ptrs.size === 0){ pinch = null; panStart = null; board.classList.remove("drag"); }
+  else if(ptrs.size === 1){
+    pinch = null;
+    const p = [...ptrs.values()][0];
+    panStart = {x:p.x, y:p.y, sx:S.x, sy:S.y};
+  }
+}
+["pointerup","pointercancel","lostpointercapture"].forEach(ev=>
+  board.addEventListener(ev, ptrEnd));
+board.addEventListener("dblclick", ()=>fit(true));
+
+/* ── Tastatur (Whiteboard-Modell) ──────────────────────────── */
+document.addEventListener("keydown", (e)=>{
+  if(e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  const k = e.key.toLowerCase();
+  const r = board.getBoundingClientRect();
+  if(k === "0" || (k === "1" && e.altKey)){ e.preventDefault(); fit(true); hideHint(); }
+  else if(e.key === "+" || e.key === "="){ e.preventDefault(); zoomAt(r.width/2, r.height/2, 1.35, true); hideHint(); }
+  else if(e.key === "-"){ e.preventDefault(); zoomAt(r.width/2, r.height/2, 1/1.35, true); hideHint(); }
+  else if(k === "m" && !e.metaKey && !e.ctrlKey){ e.preventDefault(); toggleMinimap(); }
+  else if(k === "h"){ selectTool("t-hand"); }
+  else if(k === "v"){ selectTool("t-select"); }
+  else if(e.key === "ArrowLeft" && e.altKey){ show(Math.max(cur-1, 0)); }
+  else if(e.key === "ArrowRight" && e.altKey){ show(Math.min(cur+1, META.length-1)); }
+  else if(e.key === "Escape"){ toggleRail(false); }
+  if(e.code === "Space"){ spaceDown = true; }
+});
+document.addEventListener("keyup", (e)=>{ if(e.code === "Space") spaceDown = false; });
+
+/* ── Minimap ────────────────────────────────────────────────── */
+const mmap = document.getElementById("mmap");
+const mmapCv = document.getElementById("mmap-cv");
+const mmapVp = document.getElementById("mmap-vp");
+let mmapOn = false;
+function toggleMinimap(force){
+  mmapOn = (force !== undefined) ? force : !mmapOn;
+  mmap.style.display = mmapOn ? "block" : "none";
+  if(mmapOn) drawMinimap();
+}
+function drawMinimap(){
+  if(!mmapOn || !nat.w) return;
+  const ctx = mmapCv.getContext("2d");
+  const W = mmapCv.width, H = mmapCv.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = "#f7f7f9";
+  ctx.fillRect(0,0,W,H);
+  // Diagramm-Bounding-Box als Rechteck
+  const pad = 14;
+  const sc = Math.min((W-2*pad)/nat.w, (H-2*pad)/nat.h);
+  const dw = nat.w*sc, dh = nat.h*sc;
+  const dx = (W-dw)/2, dy = (H-dh)/2;
+  ctx.fillStyle = "rgba(66,98,255,.13)";
+  ctx.strokeStyle = "rgba(66,98,255,.5)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(dx, dy, dw, dh, 3);
+  ctx.fill(); ctx.stroke();
+  // Viewport-Rechteck
+  const r = board.getBoundingClientRect();
+  const vx = (0 - S.x)/S.z * sc + dx;      // Weltx=0
+  const vy = (0 - S.y)/S.z * sc + dy;
+  const vw = r.width/S.z * sc;
+  const vh = r.height/S.z * sc;
+  mmapVp.style.left = clamp(vx, 0, W-vw) + "px";
+  mmapVp.style.top = clamp(vy, 0, H-vh) + "px";
+  mmapVp.style.width = vw + "px";
+  mmapVp.style.height = vh + "px";
+}
+mmapCv.addEventListener("pointerdown", (e)=>{
+  const rect = mmapCv.getBoundingClientRect();
+  const fx = (e.clientX - rect.left)/rect.width;
+  const fy = (e.clientY - rect.top)/rect.height;
+  const r = board.getBoundingClientRect();
+  const wx = fx * nat.w, wy = fy * nat.h;   // Weltkoordinate (naiv, Bounding-Box)
+  S.x = r.width/2 - wx * S.z;
+  S.y = r.height/2 - wy * S.z;
+  animate(); apply();
+});
+
+/* ── Tool-Rail ──────────────────────────────────────────────── */
+const rail = document.getElementById("rail");
+function toggleRail(force){
+  const on = (force !== undefined) ? force : rail.classList.contains("hidden");
+  rail.classList.toggle("hidden", !on);
+  document.getElementById("t-rail").classList.toggle("active", on);
+}
+document.getElementById("t-rail").addEventListener("click", ()=>toggleRail());
+document.getElementById("c-frames").addEventListener("click", ()=>toggleRail());
+document.getElementById("c-mm").addEventListener("click", ()=>toggleMinimap());
+document.getElementById("board-name").addEventListener("click", ()=>toggleRail());
+
+function selectTool(id){
+  ["t-select","t-hand"].forEach(t=>document.getElementById(t).classList.toggle("active", t===id));
+}
+document.getElementById("t-select").addEventListener("click", ()=>selectTool("t-select"));
+document.getElementById("t-hand").addEventListener("click", ()=>{
+  selectTool("t-hand");
+  board.dispatchEvent(new MouseEvent("click")); // no-op, Board ist immer pan-bar
+});
+
+/* ── Hint ───────────────────────────────────────────────────── */
+let hintGone = false;
+function hideHint(){
+  if(hintGone) return;
+  hintGone = true;
+  document.getElementById("hint").classList.add("gone");
+}
+
+/* ── Mermaid (Board-Look: dunkle Shapes-Outline, helle Fills) ─ */
+mermaid.initialize({
+  startOnLoad:false,
+  securityLevel:"loose",
+  theme:"base",
+  darkMode:false,
+  fontFamily:'-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+  flowchart:{curve:"basis", useMaxWidth:false, padding:10, nodeSpacing:50, rankSpacing:60},
+  sequence:{useMaxWidth:false, mirrorActors:false, diagramMarginX:16, diagramMarginY:14,
+            actorMargin:50, width:175, height:46, boxMargin:10, messageMargin:34, noteMargin:10},
+  class:{useMaxWidth:false},
+  themeVariables:{
+    fontSize:"12.5px",
+    background:"transparent",
+    primaryColor:"#ffffff",
+    primaryTextColor:"#050038",
+    primaryBorderColor:"#9ca0b3",
+    lineColor:"#5a5e73",
+    secondaryColor:"#f5f5f7",
+    tertiaryColor:"#fafafa",
+    clusterBkg:"rgba(66,98,255,0.028)",
+    clusterBorder:"rgba(66,98,255,0.28)",
+    titleColor:"#5a5e73",
+    edgeLabelBackground:"#ffffff",
+    nodeBorder:"#9ca0b3",
+    mainBkg:"#ffffff",
+    actorBkg:"#ffffff",
+    actorBorder:"#9ca0b3",
+    actorTextColor:"#050038",
+    actorLineColor:"#c8cad4",
+    signalColor:"#5a5e73",
+    signalTextColor:"#050038",
+    noteBkgColor:"rgba(255,224,102,0.55)",
+    noteBorderColor:"rgba(200,160,0,0.55)",
+    noteTextColor:"#050038",
+    activationBkgColor:"rgba(66,98,255,0.07)",
+    activationBorderColor:"rgba(66,98,255,0.45)",
+    labelBoxBkgColor:"#ffffff",
+    labelBoxBorderColor:"#9ca0b3",
+    labelTextColor:"#5a5e73",
+    loopTextColor:"#5a5e73",
+    sequenceNumberColor:"#ffffff",
+    classText:"#050038",
+    textColor:"#050038"
+  }
+});
+
+/* ── SVG-Normalisierung (Board-Stil) ────────────────────────── */
+function normalizeSvg(svgText){
+  const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+  const svg = doc.documentElement;
+  const NODE_FILL = "#ffffff";
+  const NODE_STROKE = "#9ca0b3";
+  const TITLE_FILL = "#f2f2f7";
+  const TEXT = "#050038";
+  const DIM = "#5a5e73";
+  const LINE = "#5a5e73";
+  const LABEL = "#42465c";
+  const BLUE = "#4262ff";
+  const isDiagram = svg.querySelector(".node, g.classGroup, .actor");
+  if(!isDiagram) return svgText;
+
+  svg.querySelectorAll(".node rect, .node polygon, .node circle, .node path," +
+    "g.classGroup rect, g.classGroup polygon").forEach(el=>{
+    el.style.fill = NODE_FILL;
+    el.style.stroke = NODE_STROKE;
+    el.style["stroke-width"] = "1px";
+    el.removeAttribute("filter");
+  });
+  svg.querySelectorAll("g.classGroup rect.title-box, g.classGroup polygon.title-box").forEach(el=>{
+    el.style.fill = TITLE_FILL;
+  });
+  svg.querySelectorAll(".nodeLabel, .nodeLabel *").forEach(el=>{ el.style.color = TEXT; el.style.fill = TEXT; });
+  svg.querySelectorAll("g.classGroup text, g.classGroup text *").forEach(el=>{ el.style.fill = TEXT; });
+  svg.querySelectorAll("g.classGroup .classTitle, g.classGroup .classTitle *").forEach(el=>{ el.style.fill = DIM; });
+  svg.querySelectorAll("rect.cluster, .clusters rect, polygon.cluster").forEach(el=>{
+    el.style.fill = "rgba(66,98,255,0.03)";
+    el.style.stroke = "rgba(66,98,255,0.28)";
+  });
+  svg.querySelectorAll(".cluster-label, .cluster-label *").forEach(el=>{ el.style.fill = DIM; el.style.color = DIM; });
+  svg.querySelectorAll(".flowchart-link, .relation, path.flowchart-link, path.relation").forEach(el=>{
+    el.style.stroke = LINE; el.style["stroke-width"] = "1.2px";
+  });
+  svg.querySelectorAll(".marker, .arrowheadPath, #arrowhead path").forEach(el=>{
+    el.style.fill = LINE; el.style.stroke = LINE;
+  });
+  svg.querySelectorAll(".edgeLabel, .edgeLabel span, .edgeLabel p, .edgeLabel div, .edgeLabel foreignObject div").forEach(el=>{
+    el.style.color = LABEL; el.style.fill = LABEL;
+  });
+  svg.querySelectorAll(".edgeLabel rect, .edgeLabel .label-container").forEach(el=>{
+    el.style.fill = "#ffffff";
+  });
+  svg.querySelectorAll("rect.actor, .actor rect").forEach(el=>{
+    el.style.fill = "#ffffff"; el.style.stroke = "#9ca0b3";
+  });
+  svg.querySelectorAll("text.actor, text.actor tspan").forEach(el=>{ el.style.fill = TEXT; });
+  svg.querySelectorAll("line.messageLine0, line.messageLine1").forEach(el=>{ el.style.stroke = LINE; });
+  svg.querySelectorAll(".messageText, .messageText tspan").forEach(el=>{ el.style.fill = DIM; });
+  svg.querySelectorAll("rect.note, .note rect, .noteBackground").forEach(el=>{
+    el.style.fill = "rgba(255,224,102,0.55)"; el.style.stroke = "rgba(200,160,0,0.55)";
+  });
+  svg.querySelectorAll(".noteText, .noteText tspan").forEach(el=>{ el.style.fill = TEXT; });
+  svg.querySelectorAll(".activation0, .activation1, .activation2").forEach(el=>{
+    el.style.fill = "rgba(66,98,255,0.07)"; el.style.stroke = "rgba(66,98,255,0.45)";
+  });
+  svg.querySelectorAll(".labelBox, .loopLine").forEach(el=>{
+    el.style.fill = "#ffffff"; el.style.stroke = "#9ca0b3";
+  });
+  svg.querySelectorAll(".loopText, .loopText tspan, .labelText, .labelText tspan").forEach(el=>{
+    el.style.fill = DIM;
+  });
+  return new XMLSerializer().serializeToString(svg);
+}
+
+/* ── Diagrammwechsel ────────────────────────────────────────── */
+const cache = {};
+let cur = -1;
+
+async function show(i){
+  if(i === cur) return;
+  cur = i;
+  setActive(i);
+  try{
+    const key = META[i].file;
+    if(!cache[key]){
+      const {svg} = await mermaid.render("mmd-" + i + "-" + Date.now(), DIAGRAMS[key]);
+      cache[key] = normalizeSvg(svg);
+    }
+    world.replaceChildren();
+    const el = document.createElement("div");
+    el.innerHTML = cache[key];
+    const svg = el.querySelector("svg");
+    const vb = svg.viewBox ? svg.viewBox.baseVal : {width:1200, height:800};
+    nat = {w: vb.width || 1200, h: vb.height || 800};
+    svg.setAttribute("width", nat.w);
+    svg.setAttribute("height", nat.h);
+    svg.style.maxWidth = "none";
+    svg.style.width = nat.w + "px";
+    svg.style.height = nat.h + "px";
+    world.style.width = nat.w + "px";
+    world.style.height = nat.h + "px";
+    world.appendChild(svg);
+    fit(true);
+  }catch(err){
+    world.replaceChildren();
+    const errEl = document.createElement("div");
+    errEl.style.cssText = "padding:24px;color:#c93400;font-size:13px";
+    errEl.textContent = "Render-Fehler: " + err.message;
+    world.appendChild(errEl);
+  }
+}
+
+/* Rail-Einträge bauen */
+META.forEach((m, i)=>{
+  const li = document.createElement("div");
+  li.className = "ri";
+  li.innerHTML = '<span class="n">0' + (i+1) + '</span><span>' + m.title + '</span>';
+  li.addEventListener("click", ()=>{ show(i); toggleRail(false); });
+  rail.appendChild(li);
+});
+const items = [...rail.children];
+const note = document.createElement("div");
+note.className = "src-note";
+note.innerHTML = 'Mermaid-Quellen: diagrams/*.mmd';
+rail.appendChild(note);
+
+function setActive(i){
+  items.forEach((l, j)=>l.classList.toggle("active", j === i));
+  document.getElementById("v-title").textContent = META[i].title;
+  document.getElementById("v-kind").textContent = META[i].kind;
+  document.getElementById("prev").disabled = i === 0;
+  document.getElementById("next").disabled = i === META.length - 1;
+  history.replaceState(null, "", "#" + (i+1));
+}
+
+document.getElementById("prev").addEventListener("click", ()=>show(Math.max(cur-1, 0)));
+document.getElementById("next").addEventListener("click", ()=>show(Math.min(cur+1, META.length-1)));
+window.addEventListener("resize", ()=>{ if(!panStart && !pinch){ fit(true); } });
+
+const h = Math.min(Math.max(parseInt(location.hash.slice(1)) || 1, 1), META.length);
+show(h - 1);
+toggleRail(true);
+
+/* ── Test-Modus (?t=1) ─────────────────────────────────────────
+   Synchron in show() nach fit(): Zoom 2.2× + Pan via echte Logik. */
+if(new URLSearchParams(location.search).get("t") === "1"){
+  const _fit = fit;
+  fit = function(anim){
+    _fit(anim);
+    if(!nat.w) return;
+    const r = board.getBoundingClientRect();
+    zoomAt(r.width*.7, r.height*.4, 2.2);
+    S.x += 160; S.y += 70;
+    apply();
+  };
+}
+</script>
+</body>
+</html>
